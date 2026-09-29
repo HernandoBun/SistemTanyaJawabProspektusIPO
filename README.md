@@ -1,5 +1,16 @@
 # Sistem Tanya Jawab Prospektus IPO
 
+## Deploy ke Streamlit Community Cloud
+
+Pilih repository ini, branch `main`, entry point `app.py`, dan Python **3.12**.
+Isi Advanced settings > Secrets menggunakan format `.streamlit/secrets.toml.example`,
+lalu masukkan API key OpenRouter langsung di dashboard (jangan commit key).
+Snapshot ChromaDB, BM25, dan registry untuk 6 prospektus disertakan di `data/`.
+Parsing ulang PDF tidak diperlukan untuk melayani pertanyaan.
+Setelah deploy, periksa daftar emiten, jawaban beserta sumber, dan reboot aplikasi
+untuk memastikan snapshot tetap terbaca. Pemakaian OpenRouter mengikuti biaya API.
+
+
 Implementasi mengacu pada proposal final **535230133.pdf**: LlamaParse → preprocessing → structural chunking → BGE-M3 + BM25 → RRF → Qwen 3.7 Flash melalui OpenRouter.
 
 ## Menjalankan pada komputer ini
