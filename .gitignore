@@ -1,0 +1,57 @@
+﻿# Environment
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+secrets.toml
+.venv/
+venv/
+.python-deps/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Local corpus and indexes. The separate deployment snapshot includes indexes.
+data/indexes/
+data/raw/
+data/backups/
+data/registry/index_registry.json
+data/parsed/
+
+# Temporary files
+tmp/
+deploy/
+*.tmp
+*.log
+/output/
+/test_cp.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Streamlit cache
+.streamlit/cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test output
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+.ruff_cache/
+.mypy_cache/
+
+# Evaluation results (optional — bisa di-commit untuk skripsi)
+# evaluation/results/

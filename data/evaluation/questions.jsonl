@@ -1,0 +1,4 @@
+﻿{"question_id": "Q001", "doc_source": "BACH_2026.pdf", "question": "Berapa total aset perusahaan tahun 2025?", "category": "table_numeric", "answerable": true}
+{"question_id": "Q002", "doc_source": "JELI_2026.pdf", "question": "Siapa saja direktur JELI?", "category": "factual", "answerable": true}
+{"question_id": "Q003", "doc_source": "RANS_2026.pdf", "question": "Berapa total pendapatan RANS tahun 2025?", "category": "table_numeric", "answerable": true}
+{"question_id": "Q005", "doc_source": "BACH_2026.pdf", "question": "Apa pengertian Rekening Efek?", "category": "definition", "answerable": true}

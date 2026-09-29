@@ -1,0 +1,30 @@
+# Deployment repository: include only application files and the index snapshot.
+/*
+!/.gitignore
+!/README.md
+!/app.py
+!/config.py
+!/requirements.txt
+!/.streamlit/
+/.streamlit/*
+!/.streamlit/config.toml
+!/.streamlit/secrets.toml.example
+!/src/
+!/data/
+/data/*
+!/data/indexes/
+!/data/registry/
+/data/registry/*
+!/data/registry/index_registry.json
+
+# Never publish credentials, caches, or temporary files, including in src/data.
+.env
+.env.*
+secrets.toml
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

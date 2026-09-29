@@ -1,0 +1,3 @@
+# Optional local embedding experiment, not the default proposal configuration.
+-r requirements.txt
+sentence-transformers==3.4.1

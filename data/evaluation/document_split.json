@@ -1,0 +1,14 @@
+﻿{
+  "development": [
+    "JELI_2026.pdf",
+    "JECX_2026.pdf",
+    "BACH_2026.pdf",
+    "EMMI_2026.pdf"
+  ],
+  "test": [
+    "PRDL_2026.pdf",
+    "RANS_2026.pdf",
+    "WBSA_2026.pdf",
+    "ABDI_2025.pdf"
+  ]
+}

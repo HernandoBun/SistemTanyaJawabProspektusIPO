@@ -1,0 +1,102 @@
+.stApp { background: linear-gradient(135deg, #0F172A, #1E293B 50%, #0F172A); }
+.block-container { max-width: 1200px; padding-top: 2.5rem; padding-bottom: 3rem; }
+h1 { font-size: 1.8rem !important; font-weight: 650 !important; }
+h2 { font-size: 1.35rem !important; }
+h3 { font-size: 1.1rem !important; }
+[data-testid="stSidebar"] { background: #1E293B; border-right: 1px solid #334155; }
+[data-testid="stAppDeployButton"], .stDeployButton { display: none !important; }
+[data-testid="stSidebar"] .stButton button { justify-content: flex-start; }
+.stButton button { border-radius: 8px; min-height: 40px; }
+.stButton button[kind="primary"] {
+    background: linear-gradient(100deg, #4F46E5, #3730A3); border: 0;
+    box-shadow: 0 3px 12px #4F46E52B; color: #fff;
+}
+.emiten-card { height: 170px; padding: 18px; box-sizing: border-box; border: 1px solid #334155;
+    border-top: 3px solid #334155; border-radius: 10px; background: #111827; }
+.emiten-card.ready { border-color: #167E73; background: #172133; }
+.emiten-card.active { border-color: #818CF8; background: #1E2342; }
+.emiten-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.emiten-ticker { color: #F1F5F9; font-size: 1.2rem; font-weight: 700; }
+.emiten-status { padding: 3px 8px; border-radius: 20px; background: #293548; color: #94A3B8;
+    font-size: .65rem; font-weight: 600; white-space: nowrap; }
+.ready .emiten-status { color: #5EEAD4; }
+.active .emiten-status { color: #C7D2FE; }
+.emiten-file { color: #94A3B8; font-size: .76rem; margin: 8px 0 12px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+.emiten-stats { color: #CBD5E1; font-size: .8rem; line-height: 1.7; }
+.user-message { display: flex; justify-content: flex-end; align-items: flex-start; gap: 12px; margin: 8px 0 22px; }
+.user-bubble { background: linear-gradient(120deg, #4F46E5, #3730A3); color: white;
+    padding: 14px 18px; border-radius: 16px 16px 4px 16px; max-width: 78%;
+    line-height: 1.6; font-size: .92rem; overflow-wrap: anywhere; }
+.user-avatar { border-radius: 50%; width: 34px; height: 34px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; background: #0891B2; color: #fff; font-size: .8rem; }
+[data-testid="stChatMessage"] { background: transparent; padding: 0; gap: 12px; }
+[data-testid="stChatMessageContent"] { background: #1E293B; border: 1px solid #334155;
+    border-radius: 14px; padding: 14px 18px; min-width: 0; overflow-wrap: anywhere; }
+[data-testid="stChatMessageAvatarAssistant"] { background: #0D9488; color: white; }
+.answer-meta { margin: 14px 0 2px 0; color: #94A3B8; font-size: .74rem; line-height: 1.9; }
+.source-badge { display: inline-block; background: #06B6D41A; border: 1px solid #06B6D44D;
+    border-radius: 4px; padding: 0 6px; margin: 2px; color: #22D3EE; font-size: .72rem; }
+[data-testid="stExpander"] { border-color: #334155; border-radius: 8px; }
+.source-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    padding-bottom: 8px; color: #CBD5E1; font-size: .86rem; }
+.source-score { color: #94A3B8; font-size: .73rem; }
+[data-testid="stChatInput"] { border-radius: 24px; border: 1px solid #818CF8; background: #1E293B; }
+@media (max-width: 640px) {
+    .block-container { padding: 2rem 1rem; }
+    .user-bubble { max-width: 85%; }
+    .user-avatar { display: none; }
+    .answer-meta { margin-left: 0; }
+    .emiten-card { height: auto; min-height: 155px; }
+    .home-feature-grid { grid-template-columns: 1fr; }
+    .home-hero { padding: 18px 20px; }
+}
+.home-hero {
+    background: linear-gradient(135deg, #1E293B, #141E33);
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 24px 28px;
+    margin: 8px 0 20px;
+}
+.home-badge {
+    display: inline-block;
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: .75rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+.home-badge.active {
+    background: #4F46E522;
+    border: 1px solid #818CF8;
+    color: #C7D2FE;
+}
+.home-badge.none {
+    background: #33415544;
+    border: 1px solid #475569;
+    color: #94A3B8;
+}
+.home-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-top: 24px;
+}
+.home-feature-item {
+    background: #1E293B88;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 16px 18px;
+}
+.home-feature-title {
+    color: #F8FAFC;
+    font-size: .88rem;
+    font-weight: 650;
+    margin-bottom: 6px;
+}
+.home-feature-desc {
+    color: #94A3B8;
+    font-size: .78rem;
+    line-height: 1.55;
+}
+
