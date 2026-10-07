@@ -15,7 +15,7 @@ Dimana k=60 (konstanta RRF), rank_i adalah posisi dokumen d di hasil pencarian i
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, List, Dict, Tuple
 
 from src.ingestion.chunker import Chunk
@@ -175,6 +175,27 @@ class HybridRetriever:
             f"returned={len(top_results)}"
         )
         return top_results
+
+    def retrieve_comparison(
+        self, query: str, dense_k: int = 10, sparse_k: int = 10,
+        final_k: int = 6, doc_source_filter: str | None = None,
+    ) -> dict:
+        """Compare three rankings from exactly the same two candidate pools."""
+        union = self.retrieve(
+            query, dense_k=dense_k, sparse_k=sparse_k,
+            final_k=dense_k + sparse_k, doc_source_filter=doc_source_filter,
+        )
+        dense = sorted((item for item in union if item.dense_rank), key=lambda item: item.dense_rank)
+        sparse = sorted((item for item in union if item.sparse_rank), key=lambda item: item.sparse_rank)
+        # Preserve both component ranks for audit; the baseline score uses only its own path.
+        dense = [replace(item, rrf_score=1 / (config.RRF_K + item.dense_rank)) for item in dense]
+        sparse = [replace(item, rrf_score=1 / (config.RRF_K + item.sparse_rank)) for item in sparse]
+        return {
+            "rankings": {"bm25_only": sparse[:final_k], "dense_only": dense[:final_k],
+                         "hybrid_rrf": union[:final_k]},
+            "candidate_rankings": {"bm25_only": sparse, "dense_only": dense, "hybrid_rrf": union},
+            "search_query": expand_query_for_retrieval(query),
+        }
 
     def _rrf_merge(
         self,

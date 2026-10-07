@@ -384,6 +384,21 @@ class RAGPipeline:
     #  Helpers
     # ------------------------------------------------------------------ #
 
+    def retrieve_comparison(self, question: str, dense_k: int = 10,
+                            sparse_k: int = 10, final_k: int = 6) -> dict:
+        """Return a controlled retrieval comparison without answer generation."""
+        if not self._is_ready or self._retriever is None:
+            raise RuntimeError("Pipeline belum siap. Silakan proses dokumen terlebih dahulu.")
+        if not self._active_doc:
+            raise RuntimeError("Dokumen aktif belum dipilih. Panggil set_active_document() terlebih dahulu.")
+        question = preprocess_query(question)
+        if not question:
+            raise ValueError("Pertanyaan kosong setelah preprocessing.")
+        return self._retriever.retrieve_comparison(
+            question, dense_k=dense_k, sparse_k=sparse_k, final_k=final_k,
+            doc_source_filter=self._active_doc,
+        )
+
     def is_ready(self) -> bool:
         return self._is_ready
 

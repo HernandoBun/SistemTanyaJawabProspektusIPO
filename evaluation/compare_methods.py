@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import config
 
 from evaluation.evaluate_retrieval import evaluate
 

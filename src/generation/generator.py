@@ -177,6 +177,9 @@ class GeneratorResponse:
     context_used: int = 0    # Number of chunks used
     retrieval_candidates: List[RetrievedChunk] = field(default_factory=list)
     retrieval_note: str = ""
+    # Full evidence sent to the LLM, including contexts it did not cite.
+    generation_contexts: List[RetrievedChunk] = field(default_factory=list)
+    generation_context_texts: List[str] = field(default_factory=list)
 
 
 class RAGGenerator:
@@ -349,6 +352,8 @@ class RAGGenerator:
             model_used=config.OPENROUTER_MODEL_NAME,
             tokens_used=tokens_used,
             context_used=len(retrieved_chunks),
+            generation_contexts=list(retrieved_chunks),
+            generation_context_texts=list(context_parts),
             retrieval_candidates=[] if supported else retrieved_chunks,
             retrieval_note="Kutipan hasil pencarian; model tidak menetapkan sumber pendukung untuk jawaban ini." if not supported else "",
         )

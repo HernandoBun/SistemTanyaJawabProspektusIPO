@@ -1,5 +1,8 @@
 # Pengujian sesuai proposal final
 
+Untuk alur eksekusi retrieval/RAGAS, pemeriksaan kesiapan, template dataset,
+dan laporan JSON/CSV, lihat [panduan evaluasi](../../evaluation/README.md).
+
 ## Retrieval dan RAGAS
 
 Gunakan pertanyaan dan korpus yang sama untuk BM25-only, dense-only, dan hybrid.

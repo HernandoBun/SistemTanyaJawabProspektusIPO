@@ -95,66 +95,107 @@ def evaluate(
     pipeline: "RAGPipeline | None" = None,
     use_ragas: bool = False,
     continue_on_ragas_error: bool = False,
+    ragas_evaluator=None,
 ) -> dict:
     questions = load_jsonl(questions_path)
     truth = {row["question_id"]: row for row in load_jsonl(ground_truth_path)}
+    if not questions:
+        raise ValueError("Dataset pertanyaan kosong")
     if pipeline is None:
         from src.services.pipeline import RAGPipeline
 
         pipeline = RAGPipeline()
     rows = []
-    ragas_evaluator = None
-    if use_ragas:
+    if use_ragas and ragas_evaluator is None:
         from evaluation.ragas_evaluator import RagasEvaluator
 
         ragas_evaluator = RagasEvaluator()
 
-    for question in questions:
-        reference = truth[question["question_id"]]
-        pipeline.set_active_document(question["doc_source"])
-        response = pipeline.query(question["question"])
-        row = {
-            "question_id": question["question_id"],
-            "doc_source": question["doc_source"],
-            "prediction": response.answer,
-            "reference": reference.get("answer", ""),
-            "source_pages": response.source_pages,
-            "exact_match": exact_match(response.answer, reference.get("answer", "")),
-            "token_f1": token_f1(response.answer, reference.get("answer", "")),
-            "numerical_accuracy": numerical_accuracy(response.answer, reference.get("answer", "")),
-            "citation_page_accuracy": citation_page_accuracy(
-                response.source_pages, reference.get("source_pages", [])
-            ),
-        }
+    failure = None
+    metadata = ragas_evaluator.metadata if ragas_evaluator is not None else None
+    try:
+        for question in questions:
+            reference = truth[question["question_id"]]
+            row = {
+                "question_id": question["question_id"],
+                "doc_source": question["doc_source"],
+                "question": question["question"],
+                "category": question.get("category", ""),
+                "answerable": question.get("answerable", reference.get("answerable", True)),
+                "reference": reference.get("answer", ""),
+                "expected_pages": reference.get("source_pages", []),
+            }
+            try:
+                pipeline.set_active_document(question["doc_source"])
+                response = pipeline.query(question["question"])
+            except Exception as exc:
+                row.update(status="generation_error", error=str(exc))
+                rows.append(row)
+                failure = exc
+                break
+            contexts = extract_retrieved_contexts(response)
+            row.update({
+                "status": "generated",
+                "prediction": response.answer,
+                "source_pages": response.source_pages,
+                "retrieved_contexts": contexts,
+                "context_count": len(contexts),
+                "model_used": getattr(response, "model_used", ""),
+                "tokens_used": getattr(response, "tokens_used", 0),
+                "exact_match": exact_match(response.answer, reference.get("answer", "")),
+                "token_f1": token_f1(response.answer, reference.get("answer", "")),
+                "numerical_accuracy": numerical_accuracy(response.answer, reference.get("answer", "")),
+                "citation_page_accuracy": citation_page_accuracy(
+                    response.source_pages, reference.get("source_pages", [])
+                ),
+            })
+            if ragas_evaluator is not None:
+                if not row["answerable"]:
+                    row["ragas_status"] = "skipped_unanswerable"
+                elif not contexts:
+                    row["ragas_status"] = "skipped_no_context"
+                else:
+                    try:
+                        row["ragas"] = ragas_evaluator.score(
+                            question=question["question"],
+                            answer=response.answer,
+                            reference=reference.get("answer", ""),
+                            contexts=contexts,
+                        )
+                        row["ragas_status"] = "scored"
+                    except Exception as exc:
+                        row["ragas_status"] = "error"
+                        row["ragas_error"] = str(exc)
+                        if not continue_on_ragas_error:
+                            failure = exc
+            rows.append(row)
+            if failure is not None:
+                break
+    finally:
         if ragas_evaluator is not None:
-            if not question.get("answerable", True):
-                row["ragas_status"] = "skipped_unanswerable"
-            else:
-                try:
-                    row["ragas"] = ragas_evaluator.score(
-                        question=question["question"],
-                        answer=response.answer,
-                        reference=reference.get("answer", ""),
-                        contexts=extract_retrieved_contexts(response),
-                    )
-                    row["ragas_status"] = "scored"
-                except Exception as exc:
-                    row["ragas_status"] = "error"
-                    row["ragas_error"] = str(exc)
-                    if not continue_on_ragas_error:
-                        raise
-        rows.append(row)
+            try:
+                ragas_evaluator.close()
+            except Exception as exc:
+                if failure is None:
+                    failure = exc
 
     metric_names = ("exact_match", "token_f1", "numerical_accuracy", "citation_page_accuracy")
-    summary = {name: mean(row[name] for row in rows) if rows else 0.0 for name in metric_names}
+    generated = [row for row in rows if row["status"] == "generated"]
+    summary = {name: mean(row[name] for row in generated) if generated else None for name in metric_names}
     summary["n"] = len(rows)
-    payload = {"summary": summary, "results": rows}
+    summary["n_expected"] = len(questions)
+    summary["n_generated"] = len(generated)
+    summary["n_generation_errors"] = len(rows) - len(generated)
+    payload = {"status": "failed" if failure is not None else "completed",
+               "method": "hybrid_rrf", "summary": summary, "results": rows}
     if ragas_evaluator is not None:
         scored_rows = [row for row in rows if row.get("ragas_status") == "scored"]
         summary["ragas_n_scored"] = len(scored_rows)
         summary["ragas_n_skipped"] = sum(
-            row.get("ragas_status") == "skipped_unanswerable" for row in rows
+            row.get("ragas_status", "").startswith("skipped_") for row in rows
         )
+        summary["ragas_n_no_context"] = sum(row.get("ragas_status") == "skipped_no_context" for row in rows)
+        summary["ragas_n_unanswerable"] = sum(row.get("ragas_status") == "skipped_unanswerable" for row in rows)
         summary["ragas_n_errors"] = sum(
             row.get("ragas_status") == "error" for row in rows
         )
@@ -162,13 +203,15 @@ def evaluate(
             summary[f"ragas_{name}"] = (
                 mean(row["ragas"][name]["score"] for row in scored_rows)
                 if scored_rows
-                else 0.0
+                else None
             )
-        payload["ragas_metadata"] = ragas_evaluator.metadata
+        payload["ragas_metadata"] = metadata
     if output_path:
         destination = Path(output_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+    if failure is not None:
+        raise RuntimeError("Evaluasi generasi/RAGAS gagal; hasil yang sudah selesai disimpan jika output_path tersedia.") from failure
     return payload
 
 

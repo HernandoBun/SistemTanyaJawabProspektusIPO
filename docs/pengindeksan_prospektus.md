@@ -36,8 +36,9 @@ belum menjamin pemulihan saat listrik padam atau proses dihentikan paksa.
 Hasil disimpan dalam ChromaDB dan BM25 per dokumen. Registry mencatat dokumen
 yang siap dipilih. File PDF saja belum cukup untuk menjadikannya siap digunakan.
 
-Setelah pemrosesan, hentikan aplikasi lama dengan **Ctrl+C** pada terminalnya,
-lalu jalankan kembali:
+Setelah pemrosesan, buka atau muat ulang halaman **Manajemen Emiten**. Aplikasi
+memuat ulang indeks ketika registry berubah dan mempertahankan emiten aktif
+yang masih tersedia. Jika aplikasi belum berjalan, jalankan:
 
 ```powershell
 .\jalankan.ps1

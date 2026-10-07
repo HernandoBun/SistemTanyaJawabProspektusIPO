@@ -46,10 +46,25 @@ from src.ui.utils import get_ticker_from_filename
 from src.generation.generator import clean_generated_answer
 
 def load_pipeline():
-    """Keep active-document state private to this browser session."""
+    """Reload offline index updates while preserving this session's selection."""
     from src.services.pipeline import RAGPipeline
-    if "pipeline" not in st.session_state:
-        st.session_state.pipeline = RAGPipeline()
+    try:
+        registry_stat = config.CACHE_REGISTRY_PATH.stat()
+        registry_revision = (registry_stat.st_mtime_ns, registry_stat.st_size)
+    except FileNotFoundError:
+        registry_revision = None
+    if ("pipeline" not in st.session_state
+            or st.session_state.get("pipeline_registry_revision") != registry_revision):
+        previous = st.session_state.get("pipeline")
+        active_doc = previous.get_active_document() if previous else None
+        pipeline = RAGPipeline()
+        if active_doc in pipeline.get_indexed_docs():
+            pipeline.set_active_document(active_doc)
+        elif active_doc:
+            st.session_state.messages = []
+            st.session_state.pdf_name = None
+        st.session_state.pipeline = pipeline
+        st.session_state.pipeline_registry_revision = registry_revision
     return st.session_state.pipeline
 
 

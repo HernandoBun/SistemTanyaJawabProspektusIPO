@@ -3,7 +3,14 @@ param(
     [string]$Mode = 'app',
     [string[]]$Documents,
     [ValidateSet('chunk', 'page')]
-    [string]$RelevanceUnit = 'chunk'
+    [string]$RelevanceUnit = 'chunk',
+    [ValidateSet('retrieval', 'ragas', 'all')]
+    [string]$EvaluationStage = 'retrieval',
+    [switch]$CheckOnly,
+    [switch]$ContinueOnRagasError,
+    [string]$QuestionsPath,
+    [string]$GroundTruthPath,
+    [string]$OutputDir
 )
 $ErrorActionPreference = 'Stop'
 $projectPython = Join-Path $PSScriptRoot '.venv/Scripts/python.exe'
@@ -25,11 +32,23 @@ Push-Location $PSScriptRoot
 try {
     # An installed virtual environment must not inherit incompatible binary packages.
     $env:PYTHONPATH = if ($pythonPath -eq $bundledPython) { Join-Path $PSScriptRoot '.python-deps' } else { $null }
+    $evaluationDependencies = Join-Path $PSScriptRoot '.evaluation-deps'
+    if ($pythonPath -eq $bundledPython -and $Mode -eq 'evaluation' -and (Test-Path -LiteralPath $evaluationDependencies)) {
+        $env:PYTHONPATH = $evaluationDependencies + ';' + $env:PYTHONPATH
+    }
     switch ($Mode) {
         'app' { & $pythonPath -X utf8 -m streamlit run app.py }
         'ingest' { & $pythonPath -X utf8 -m scripts.ingest_documents --documents @Documents }
         'test' { & $pythonPath -X utf8 -m pytest tests -q -p no:cacheprovider }
-        'evaluation' { & $pythonPath -X utf8 -m scripts.run_evaluation --relevance-unit $RelevanceUnit }
+        'evaluation' {
+            $evaluationArgs = @('--stage', $EvaluationStage, '--relevance-unit', $RelevanceUnit)
+            if ($CheckOnly) { $evaluationArgs += '--check-only' }
+            if ($ContinueOnRagasError) { $evaluationArgs += '--continue-on-ragas-error' }
+            if ($QuestionsPath) { $evaluationArgs += @('--questions', $QuestionsPath) }
+            if ($GroundTruthPath) { $evaluationArgs += @('--ground-truth', $GroundTruthPath) }
+            if ($OutputDir) { $evaluationArgs += @('--output-dir', $OutputDir) }
+            & $pythonPath -X utf8 -m scripts.run_evaluation @evaluationArgs
+        }
         'check' {
             & $pythonPath -X utf8 -c "import numpy, chromadb, dotenv, streamlit; from llama_parse import LlamaParse; from langchain_openai import ChatOpenAI; from src.services.pipeline import RAGPipeline; p=RAGPipeline(); print('OK: dependensi LlamaParse dan inisialisasi pipeline. Belum menguji layanan API.')"
         }

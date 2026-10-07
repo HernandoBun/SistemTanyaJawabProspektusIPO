@@ -1,6 +1,8 @@
 """RAGAS scoring with OpenRouter Qwen 3.7 Flash and project BGE-M3."""
 from __future__ import annotations
 
+import asyncio
+import math
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -16,9 +18,15 @@ RAGAS_METRIC_NAMES = (
 
 
 def extract_retrieved_contexts(response: Any) -> list[str]:
-    """Extract clean chunk text from a GeneratorResponse-like object."""
+    """Use all contexts sent to the model, rather than only selected citations."""
+    context_texts = getattr(response, "generation_context_texts", None)
+    if context_texts is not None:
+        return [text.strip() for text in context_texts if isinstance(text, str) and text.strip()]
     contexts: list[str] = []
-    for retrieved in getattr(response, "source_chunks", []) or []:
+    chunks = getattr(response, "generation_contexts", None)
+    if chunks is None:  # Compatibility with responses created before context capture.
+        chunks = getattr(response, "source_chunks", [])
+    for retrieved in chunks or []:
         chunk = getattr(retrieved, "chunk", retrieved)
         content = getattr(chunk, "content", "")
         if isinstance(content, str) and content.strip():
@@ -30,7 +38,10 @@ def metric_result_value_reason(result: Any) -> tuple[float, str | None]:
     """Normalize RAGAS MetricResult or a numeric test double."""
     value = getattr(result, "value", result)
     reason = getattr(result, "reason", None)
-    return float(value), reason
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError("RAGAS mengembalikan skor non-finite (NaN/Infinity).")
+    return value, reason
 
 
 @dataclass
@@ -50,7 +61,7 @@ class RagasEvaluator:
     """
 
     def __init__(self) -> None:
-        if not config.OPENROUTER_API_KEY:
+        if not config.OPENROUTER_API_KEY or config.OPENROUTER_API_KEY.startswith("your_"):
             raise ValueError(
                 "OPENROUTER_API_KEY tidak ditemukan; RAGAS memerlukan evaluator LLM."
             )
@@ -59,10 +70,9 @@ class RagasEvaluator:
         os.environ.setdefault("RAGAS_DO_NOT_TRACK", "true")
 
         try:
-            from langchain_core.embeddings import Embeddings
-            from langchain_openai import ChatOpenAI
-            from ragas.embeddings import LangchainEmbeddingsWrapper
-            from ragas.llms import LangchainLLMWrapper
+            from openai import AsyncOpenAI
+            from ragas.embeddings.base import BaseRagasEmbedding
+            from ragas.llms import llm_factory
             from ragas.metrics.collections import (
                 AnswerRelevancy,
                 ContextPrecision,
@@ -76,34 +86,47 @@ class RagasEvaluator:
 
         from src.retrieval.embedder import Embedder
 
-        class ProjectBgeM3Embeddings(Embeddings):
-            """LangChain adapter that reuses the exact project embedding model."""
+        class ProjectBgeM3Embeddings(BaseRagasEmbedding):
+            """Modern RAGAS adapter for the same project embedding provider."""
 
             def __init__(self) -> None:
+                super().__init__()
                 self._embedder = Embedder()
 
-            def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            def embed_texts(self, texts: list[str], **kwargs) -> list[list[float]]:
                 return self._embedder.embed_texts(
                     texts, show_progress=False
                 ).tolist()
 
-            def embed_query(self, text: str) -> list[float]:
+            def embed_text(self, text: str, **kwargs) -> list[float]:
                 return self._embedder.embed_query(text).tolist()
 
-        judge = ChatOpenAI(
+            async def aembed_text(self, text: str, **kwargs) -> list[float]:
+                return await asyncio.to_thread(self.embed_text, text)
+
+            async def aembed_texts(self, texts: list[str], **kwargs) -> list[list[float]]:
+                return await asyncio.to_thread(self.embed_texts, texts)
+
+        self._client = AsyncOpenAI(
             api_key=config.OPENROUTER_API_KEY,
             base_url=config.OPENROUTER_BASE_URL,
-            model=config.RAGAS_EVALUATOR_MODEL,
-            temperature=config.RAGAS_EVALUATOR_TEMPERATURE,
-            max_tokens=config.RAGAS_EVALUATOR_MAX_TOKENS,
-            extra_body={"reasoning": {"effort": "none"}},
+            timeout=config.OPENROUTER_TIMEOUT,
+            max_retries=config.OPENROUTER_MAX_RETRIES,
             default_headers={
                 "HTTP-Referer": "http://localhost:8501",
                 "X-Title": "IPO Prospectus Q&A",
             },
         )
-        evaluator_llm = LangchainLLMWrapper(judge)
-        evaluator_embeddings = LangchainEmbeddingsWrapper(ProjectBgeM3Embeddings())
+        evaluator_llm = llm_factory(
+            config.RAGAS_EVALUATOR_MODEL,
+            provider="openai",
+            client=self._client,
+            temperature=config.RAGAS_EVALUATOR_TEMPERATURE,
+            max_tokens=config.RAGAS_EVALUATOR_MAX_TOKENS,
+        )
+        evaluator_embeddings = ProjectBgeM3Embeddings()
+        # Preserve a single event loop and HTTP connection pool across every metric/sample.
+        self._runner = asyncio.Runner()
 
         self.metrics = {
             "faithfulness": Faithfulness(llm=evaluator_llm),
@@ -120,6 +143,8 @@ class RagasEvaluator:
             "ragas_api": "collections-v0.4",
             "evaluator_model": config.RAGAS_EVALUATOR_MODEL,
             "embedding_model": config.EMBEDDING_MODEL_NAME,
+            "embedding_provider": config.EMBEDDING_PROVIDER,
+            "context_source": "generation_context_texts",
         }
 
     def score(
@@ -131,24 +156,38 @@ class RagasEvaluator:
         contexts: list[str],
     ) -> dict[str, dict[str, float | str | None]]:
         """Return faithfulness, relevancy, precision, and recall scores."""
+        return self._runner.run(self.ascore(
+            question=question, answer=answer, reference=reference, contexts=contexts
+        ))
+
+    def close(self) -> None:
+        try:
+            self._runner.run(self._client.close())
+        finally:
+            self._runner.close()
+
+    async def ascore(
+        self, *, question: str, answer: str, reference: str, contexts: list[str]
+    ) -> dict[str, dict[str, float | str | None]]:
         if not contexts:
             raise ValueError("RAGAS tidak dapat dijalankan tanpa retrieved contexts.")
 
         raw_results = {
-            "faithfulness": self.metrics["faithfulness"].score(
+            "faithfulness": await self.metrics["faithfulness"].ascore(
+                user_input=question,
                 response=answer,
                 retrieved_contexts=contexts,
             ),
-            "answer_relevancy": self.metrics["answer_relevancy"].score(
+            "answer_relevancy": await self.metrics["answer_relevancy"].ascore(
                 user_input=question,
                 response=answer,
             ),
-            "context_precision": self.metrics["context_precision"].score(
+            "context_precision": await self.metrics["context_precision"].ascore(
                 user_input=question,
                 reference=reference,
                 retrieved_contexts=contexts,
             ),
-            "context_recall": self.metrics["context_recall"].score(
+            "context_recall": await self.metrics["context_recall"].ascore(
                 user_input=question,
                 reference=reference,
                 retrieved_contexts=contexts,
