@@ -18,7 +18,7 @@ __pycache__/
 dist/
 build/
 
-# Local corpus and indexes. The separate deployment snapshot includes indexes.
+# Include the prepared indexes for Community Cloud; keep raw PDFs and parse caches local.
 data/raw/
 data/backups/
 data/parsed/
