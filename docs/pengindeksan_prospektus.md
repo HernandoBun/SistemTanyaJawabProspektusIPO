@@ -1,6 +1,44 @@
 # Cara mengindeks prospektus
 
 Buka terminal di folder **Program**. Masukkan PDF ke `data/raw/prospectuses/`.
+
+## Menambah prospektus 2025 satu per satu
+
+1. Beri nama PDF dengan format `KODE_2025.pdf`, memakai kode emiten dan tahun
+   prospektus yang sebenarnya. Tahun ini adalah tahun prospektus/IPO, bukan tahun
+   laporan keuangan atau tanggal dokumen diindeks.
+2. Simpan PDF tersebut di `data/raw/prospectuses/`.
+3. Proses satu PDF dari terminal pada folder **Program**:
+
+   ```powershell
+   .\proses_dokumen.ps1 -Documents "KODE_2025.pdf"
+   ```
+
+   Ganti `KODE` dengan kode emiten sesuai nama PDF yang Anda simpan.
+4. Tunggu `[OK] Indexed KODE_2025.pdf` dan `Ingestion complete.` sebelum
+   memproses emiten berikutnya. Perintah ini menambahkan dokumen ke korpus yang ada.
+5. Buka **Manajemen Emiten**, pilih **Tahun prospektus → 2025**, lalu klik
+   **Pilih & Chat** pada emiten berstatus **SIAP**.
+
+Ulangi langkah yang sama untuk setiap prospektus 2025. File untuk emiten dan tahun
+berbeda memakai nama berbeda, misalnya `KODE_2025.pdf` dan `KODE_2026.pdf`.
+Filter tahun hanya mengubah daftar kartu; dokumen aktif tetap dipakai sampai
+Anda menekan **Pilih & Chat** pada dokumen lain. Nama emiten dan tahunnya tampil
+di sidebar dan halaman tanya jawab.
+
+Tahun baru otomatis tersedia ketika PDF atau indeks dengan tahun tersebut ada.
+Pilihan **2025** tetap tersedia sebelum PDF pertama ditambahkan, dengan pesan
+bahwa prospektus tahun tersebut belum tersedia. File tanpa tahun yang jelas
+ditampilkan dalam **Tahun belum diketahui**.
+
+Untuk Streamlit Cloud, unggah perubahan `app.py` dan `src/ui/utils.py` ke
+repository aplikasi. Setelah menambah PDF secara lokal, perbarui seluruh
+`data/indexes/` dan `data/registry/index_registry.json` bersama-sama, lalu reboot
+aplikasi Cloud. Filter tetap berfungsi dari registry walaupun PDF mentah tidak
+diunggah.
+
+## Contoh perintah per dokumen
+
 Jalankan satu perintah sesuai dokumen yang ingin diproses:
 
 ```powershell

@@ -42,7 +42,7 @@ st.markdown(
 # ---- Import Pipeline (after page config) ----
 import config
 from src.ui.state import init_session
-from src.ui.utils import get_ticker_from_filename
+from src.ui.utils import get_ticker_from_filename, get_prospectus_year, get_prospectus_label
 from src.generation.generator import clean_generated_answer
 
 def load_pipeline():
@@ -96,7 +96,7 @@ def render_sidebar():
         active_doc = load_pipeline().get_active_document()
         st.caption("Emiten aktif")
         if active_doc:
-            st.write(get_ticker_from_filename(active_doc))
+            st.write(get_prospectus_label(active_doc))
         else:
             st.caption("Belum dipilih")
 
@@ -105,7 +105,7 @@ def render_home():
 
     pipeline = load_pipeline()
     active_doc = pipeline.get_active_document()
-    active_ticker = get_ticker_from_filename(active_doc) if active_doc else None
+    active_ticker = get_prospectus_label(active_doc) if active_doc else None
 
     # Status emiten aktif
     if active_ticker:
@@ -176,9 +176,26 @@ def render_management():
     indexed = pipeline.get_indexed_docs()
     active = pipeline.get_active_document()
     names = set(indexed) | {p.name for p in config.PROSPEKTUS_DIR.glob("*.pdf")}
+    document_years = {name: get_prospectus_year(name) for name in names}
+    years = sorted({2025} | {year for year in document_years.values() if year is not None}, reverse=True)
+    year_options = ["Semua tahun", *map(str, years)]
+    if None in document_years.values():
+        year_options.append("Tahun belum diketahui")
+    if st.session_state.get("management_year", "Semua tahun") not in year_options:
+        st.session_state.management_year = "Semua tahun"
+    selected_year = st.selectbox("Tahun prospektus", year_options, key="management_year")
     if not names:
         st.info("Belum ada dokumen. Prospektus akan tampil setelah disiapkan oleh pengelola.")
         return
+    if selected_year == "Tahun belum diketahui":
+        names = {name for name in names if document_years[name] is None}
+    elif selected_year != "Semua tahun":
+        names = {name for name in names if document_years[name] == int(selected_year)}
+    if not names:
+        st.info(f"Belum ada prospektus tahun {selected_year} yang tersedia.")
+        return
+    ready_count = sum(name in indexed for name in names)
+    st.caption(f"{len(names)} prospektus · {ready_count} siap ditanya")
     st.subheader("Daftar Dokumen di Server")
     ordered = sorted(names, key=lambda name: (0 if name == active else 1 if name in indexed else 2, name))
     for start in range(0, len(ordered), 3):
@@ -196,11 +213,12 @@ def render_management():
             )
             with column:
                 ticker = html.escape(get_ticker_from_filename(name))
+                year_label = str(document_years[name]) if document_years[name] is not None else "Tahun belum diketahui"
                 st.markdown(
                     f'<div class="emiten-card {state}"><div class="emiten-heading">'
                     f'<span class="emiten-ticker">{ticker}</span>'
                     f'<span class="emiten-status">{label}</span></div>'
-                    f'<div class="emiten-file">Prospektus {ticker}</div>'
+                    f'<div class="emiten-file">Prospektus {ticker} · {year_label}</div>'
                     f'<div class="emiten-stats">{statistics}</div></div>', unsafe_allow_html=True,
                 )
                 if st.button("Buka Chat" if is_active else "Pilih & Chat" if ready else "Belum tersedia",
@@ -225,7 +243,7 @@ def render_chat():
         return
     heading, action = st.columns([3, 1])
     with heading:
-        st.write(f"Emiten: **{get_ticker_from_filename(doc_name)}**")
+        st.write(f"Emiten: **{get_prospectus_label(doc_name)}**")
     with action:
         if st.button("Hapus percakapan", use_container_width=True,
                      disabled=not st.session_state.messages):

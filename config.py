@@ -112,7 +112,7 @@ CHROMA_DISTANCE_SPACE = "cosine"
 
 # BM25 is built independently for every prospectus so corpus statistics
 # (N, document frequency, and avgdl) always belong to the active issuer.
-BM25_INDEX_SCHEMA_VERSION = "per-document-v1"
+BM25_INDEX_SCHEMA_VERSION = "per-document-v2-term-frequency"
 
 # ===========================================================
 # LLM (OpenRouter - Qwen)

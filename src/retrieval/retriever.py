@@ -63,7 +63,7 @@ PROSPECTUS_DOMAIN_EXPANSIONS = {
     "ipo": ["penawaran umum perdana saham"],
     "saham publik": ["penawaran umum", "saham baru", "masyarakat"],
     "akuisisi": ["pengambilalihan", "penyertaan saham"],
-    "pengendali": ["pemegang saham pengendali", "ultimate beneficial owner"],
+    "pengendali": ["pemegang saham pengendali", "struktur pemegang saham"],
     "direktur": ["susunan direksi", "pengurus"],
     "direksi": ["susunan direksi", "pengurus"],
     "komisaris": ["dewan komisaris", "pengurus"],
@@ -87,6 +87,8 @@ def expand_query_for_retrieval(query: str) -> str:
     q_lower = query.lower()
     additions = ["perseroan"]
     for term, synonyms in PROSPECTUS_DOMAIN_EXPANSIONS.items():
+        if term == "ipo" and "pengendali" in q_lower:
+            continue
         if term in q_lower:
             additions.extend(synonyms)
 

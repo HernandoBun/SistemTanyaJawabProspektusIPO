@@ -27,7 +27,8 @@ Mode `check` memeriksa dependensi dan inisialisasi pipeline. Ini bukan pengujian
 
 ## Menambahkan prospektus
 
-1. Simpan PDF di `data/raw/prospectuses/`.
+1. Simpan PDF di `data/raw/prospectuses/` dengan nama `KODE_TAHUN.pdf`, misalnya
+   `KODE_2025.pdf`. Gunakan tahun prospektus/IPO yang sebenarnya.
 2. Jalankan pemrosesan dari terminal:
 
 ```powershell
@@ -35,7 +36,9 @@ Mode `check` memeriksa dependensi dan inisialisasi pipeline. Ini bukan pengujian
 ```
 
 3. Tunggu `[OK] Indexed ...` dan `Ingestion complete.`. Jika `[GAGAL]` muncul, dokumen belum dinyatakan selesai. Pesan menunjukkan tahap dan tindakan yang diperlukan.
-4. Mulai ulang Streamlit. Pengguna membuka **Manajemen Emiten**, memilih emiten, lalu mengajukan pertanyaan.
+4. Muat ulang halaman **Manajemen Emiten**, pilih **Tahun prospektus**, lalu
+   pilih emiten yang berstatus **SIAP** untuk mulai bertanya. Ulangi perintah
+   pemrosesan untuk setiap PDF yang ingin ditambahkan satu per satu.
 
 Pemrosesan offline berarti terpisah dari tanya jawab. LlamaParse dan OpenRouter tetap membutuhkan internet. Cache parsing dipakai ulang selama sumber dan konfigurasi sesuai. Kegagalan embedding tidak mengganti provider secara diam-diam.
 

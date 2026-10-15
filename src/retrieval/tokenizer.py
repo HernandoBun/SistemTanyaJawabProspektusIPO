@@ -7,6 +7,14 @@ import unicodedata
 from typing import List
 
 
+# Interrogatives do not identify the requested financial fact. Keep temporal
+# qualifiers, negation, entity references, and financial terms in the query.
+QUERY_STOPWORDS = frozenset({
+    "apa", "apakah", "berapa", "siapa", "siapakah", "kapan", "bagaimana",
+    "mengapa", "kenapa",
+})
+
+
 def _normalize_numbers(text: str) -> str:
     """Create searchable tokens while retaining Indonesian number semantics."""
 
@@ -37,16 +45,29 @@ def _normalize_numbers(text: str) -> str:
 
 
 def _tokenize(text: str) -> List[str]:
-    """Tokenize Unicode text and emit normalized plus original number forms."""
+    """Preserve term frequencies and add distinct original numeric aliases."""
     source = unicodedata.normalize("NFC", text).casefold()
     normalized = _normalize_numbers(source)
     tokens_normalized = re.findall(r"\w+", normalized, flags=re.UNICODE)
     tokens_original = re.findall(r"\w+", source, flags=re.UNICODE)
 
-    seen = set()
-    result: List[str] = []
-    for token in tokens_normalized + tokens_original:
-        if token and token not in seen:
+    # BM25 requires repeated occurrences, not a set of words per chunk.
+    # Appending the whole original token stream would double plain-word TF.
+    result = list(tokens_normalized)
+    seen = set(result)
+    for token in tokens_original:
+        if token not in seen:
             seen.add(token)
             result.append(token)
     return result
+
+
+def tokenize_sparse_query(text: str) -> List[str]:
+    """Keep fact-bearing terms, financial numbers, dates, and negation."""
+    tokens = list(dict.fromkeys(_tokenize(text)))
+    if "harga" in tokens and "penawaran" in tokens:
+        # Long IPO boilerplate otherwise outranks the actual offer-price facts.
+        qualifiers = [token for token in tokens if any(char.isdigit() for char in token)
+                      or token in {"sebelum", "setelah", "saat"}]
+        return ["harga", "penawaran", "saham", *qualifiers]
+    return [token for token in tokens if token not in QUERY_STOPWORDS]

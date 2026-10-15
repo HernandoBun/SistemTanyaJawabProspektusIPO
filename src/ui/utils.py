@@ -5,6 +5,20 @@ import re
 from pathlib import Path
 
 
+def get_prospectus_year(filename: str | None) -> int | None:
+    """Read the prospectus year from the filename, never the indexing date."""
+    if not filename:
+        return None
+    years = set(re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", Path(filename).stem))
+    return int(next(iter(years))) if len(years) == 1 else None
+
+
+def get_prospectus_label(filename: str | None) -> str:
+    ticker = get_ticker_from_filename(filename)
+    year = get_prospectus_year(filename)
+    return f"{ticker} ({year})" if year is not None else ticker
+
+
 def get_ticker_from_filename(filename: str | None) -> str:
     if not filename:
         return "Unknown"

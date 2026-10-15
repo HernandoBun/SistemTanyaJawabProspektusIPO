@@ -22,7 +22,7 @@ from rank_bm25 import BM25Okapi
 
 from src.ingestion.chunker import Chunk
 from src.retrieval.embedder import Embedder
-from src.retrieval.tokenizer import _tokenize
+from src.retrieval.tokenizer import _tokenize, tokenize_sparse_query
 import config
 
 logger = logging.getLogger(__name__)
@@ -387,7 +387,9 @@ class DualIndexer:
         if bm25 is None or not corpus_chunks:
             return []
 
-        tokenized_query = _tokenize(query)
+        tokenized_query = tokenize_sparse_query(query)
+        if not tokenized_query:
+            return []
         scores = bm25.get_scores(tokenized_query)
 
         top_k_indices = np.argsort(scores)[::-1][:k]
@@ -452,7 +454,7 @@ class DualIndexer:
                 if not legacy_chunks:
                     raise ValueError("Corpus BM25 lama kosong atau tidak valid.")
                 logger.warning(
-                    "Migrating legacy global BM25 index to per-document BM25 in memory."
+                    "Rebuilding stored BM25 corpus with current per-document tokenization."
                 )
                 self._rebuild_bm25_by_document(legacy_chunks)
                 self._save_bm25()
