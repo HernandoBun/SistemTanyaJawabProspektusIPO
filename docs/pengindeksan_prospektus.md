@@ -11,7 +11,7 @@ Buka terminal di folder **Program**. Masukkan PDF ke `data/raw/prospectuses/`.
 3. Proses satu PDF dari terminal pada folder **Program**:
 
    ```powershell
-   .\proses_dokumen.ps1 -Documents "KODE_2025.pdf"
+   .venv\Scripts\python.exe -m scripts.ingest_documents --documents "KODE_2025.pdf"
    ```
 
    Ganti `KODE` dengan kode emiten sesuai nama PDF yang Anda simpan.
@@ -42,22 +42,22 @@ diunggah.
 Jalankan satu perintah sesuai dokumen yang ingin diproses:
 
 ```powershell
-.\proses_dokumen.ps1 -Documents "ABDI_2025.pdf"
-.\proses_dokumen.ps1 -Documents "BACH_2026.pdf"
-.\proses_dokumen.ps1 -Documents "EMMI_2026.pdf"
-.\proses_dokumen.ps1 -Documents "JECX_2026.pdf"
-.\proses_dokumen.ps1 -Documents "JELI_2026.pdf"
-.\proses_dokumen.ps1 -Documents "PRDL_2026.pdf"
-.\proses_dokumen.ps1 -Documents "RANS_2026.pdf"
-.\proses_dokumen.ps1 -Documents "SWAP_2026.pdf"
-.\proses_dokumen.ps1 -Documents "WBSA_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "ABDI_2025.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "BACH_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "EMMI_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "JECX_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "JELI_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "PRDL_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "RANS_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "SWAP_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "WBSA_2026.pdf"
 ```
 
 Tidak perlu menjalankan semuanya jika hanya membutuhkan satu emiten. Untuk
-beberapa dokumen sekaligus, gunakan daftar nama dipisahkan koma:
+beberapa dokumen sekaligus, pisahkan nama dokumen dengan spasi:
 
 ```powershell
-.\proses_dokumen.ps1 -Documents "JECX_2026.pdf","RANS_2026.pdf","SWAP_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "JECX_2026.pdf" "RANS_2026.pdf" "SWAP_2026.pdf"
 ```
 
 Tunggu sampai `[OK] Indexed nama_file.pdf` dan `Ingestion complete.` muncul.
@@ -79,7 +79,7 @@ memuat ulang indeks ketika registry berubah dan mempertahankan emiten aktif
 yang masih tersedia. Jika aplikasi belum berjalan, jalankan:
 
 ```powershell
-.\jalankan.ps1
+.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 Buka **Manajemen Emiten** dan klik **Pilih & Chat** pada emiten yang berstatus
@@ -88,8 +88,7 @@ dibatasi pada prospektus tersebut.
 
 Proses offline tetap memerlukan koneksi untuk LlamaParse dan embedding OpenRouter.
 Jika muncul `[GAGAL]`, periksa pesan kesalahannya; jangan menganggap indeks selesai.
-Pemeriksaan `.\proses_dokumen.ps1 -Check` juga memeriksa apakah LlamaParse dapat
-dimuat. Paket harus terpasang pada Python 3.12 yang dipakai launcher, bukan pada
-Python 3.14 bawaan terminal. Pesan parsing 0% berarti layanan masih mengekstrak
+Pastikan dependensi proyek terpasang pada lingkungan Python 3.12 yang dipakai
+untuk pemrosesan dokumen. Pesan parsing 0% berarti layanan masih mengekstrak
 PDF; tunggu hasil tahap berikutnya atau pesan kegagalan.
 Perbaikan ID retrieval tidak memerlukan pengindeksan ulang RANS yang sudah berhasil.

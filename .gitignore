@@ -30,7 +30,6 @@ deploy/
 *.tmp
 *.log
 /output/
-/test_cp.txt
 
 # IDE
 .vscode/
@@ -58,15 +57,15 @@ coverage.xml
 
 docs/
 evaluation/
-/evaluasi_paper.ps1
-/evaluasi.ps1
 
 tests/
 docs/technical/panduan_evaluasi.md
-requirements-colab.txt
+
 requirements-evaluation.txt
 docs/technical/panduan_evaluasi.md
 evaluation/
 
 docs/pengindeksan_prospektus.md
 docs/technical/panduan_evaluasi.md
+
+tests/

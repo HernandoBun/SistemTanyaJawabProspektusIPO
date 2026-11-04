@@ -1,17 +1,4 @@
-"""
-src/pipeline.py — Orchestration Pipeline
-
-INGESTION PIPELINE:
-PDF → Parser → Preprocessor → Chunker → Embedder → Indexer (ChromaDB + BM25)
-
-QUERY PIPELINE:
-Question → HybridRetriever (filtered by active doc) → RAGGenerator → Answer
-
-Features:
-- Document cache registry: indexed docs are NOT re-processed on reload
-- Multi-document index: all docs share one ChromaDB collection
-- Active document switching: instantly switch query scope per emiten
-"""
+"""Mengatur pengindeksan dokumen, retrieval, dan pembentukan jawaban."""
 
 from __future__ import annotations
 
@@ -37,22 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class RAGPipeline:
-    """
-    Main orchestration class for the IPO Prospectus RAG system.
-
-    Usage:
-        pipeline = RAGPipeline()
-
-        # Ingest a document (skipped automatically if already cached)
-        pipeline.ingest("PROSPEKTUS IPO/07-rans-prospektus-2026.pdf")
-
-        # Switch active document for queries
-        pipeline.set_active_document("07-rans-prospektus-2026.pdf")
-
-        # Query
-        result = pipeline.query("Berapa total aset perusahaan?")
-        print(result.answer)
-    """
+    """Pipeline pengindeksan dan tanya jawab untuk emiten aktif."""
 
     def __init__(self):
         from src.retrieval.indexer import DualIndexer
@@ -60,18 +32,13 @@ class RAGPipeline:
         self.indexer = DualIndexer()
         self._retriever: Optional[HybridRetriever] = None
         self._generator: Optional[RAGGenerator] = None
-        self._active_doc: Optional[str] = None   # filename of active document
+        self._active_doc: Optional[str] = None
         self._is_ready = False
 
-        # Load registry (tracks which docs have been indexed)
         self._registry: Dict[str, dict] = self._load_registry()
 
-        # Try to load existing index on startup
         self._try_load_existing_index()
 
-    # ------------------------------------------------------------------ #
-    #  Registry Management
-    # ------------------------------------------------------------------ #
 
     def _load_registry(self) -> Dict[str, dict]:
         """Load the JSON registry of indexed documents from disk."""
@@ -124,18 +91,13 @@ class RAGPipeline:
         if success and doc_name in self._registry:
             del self._registry[doc_name]
             self._save_registry()
-            # If this was the active doc, clear it
             if self._active_doc == doc_name:
                 self._active_doc = None
-                # Set active to first remaining doc if any
                 if self._registry:
                     self._active_doc = next(iter(self._registry))
             logger.info(f"Document '{doc_name}' removed from index and registry.")
         return success
 
-    # ------------------------------------------------------------------ #
-    #  Ingestion
-    # ------------------------------------------------------------------ #
 
     def ingest(
         self,
@@ -144,22 +106,7 @@ class RAGPipeline:
         force: bool = False,
         refresh_parse_cache: bool = False,
     ) -> dict:
-        """
-        Full ingestion pipeline: PDF → Index.
-
-        Automatically SKIPS processing if the document is already in the cache
-        registry, unless force=True is passed.
-
-        Args:
-            pdf_path: Path to the PDF prospectus file.
-            progress_callback: Optional callable(stage, pct, msg) for UI updates.
-            force: If True, re-process even if already cached.
-            refresh_parse_cache: If True, call the parser again instead of
-                reusing a matching cached parse result.
-
-        Returns:
-            dict with ingestion statistics. Includes 'skipped': True if cached.
-        """
+        """Mengindeks prospektus dan memperbarui registry setelah indeks tersimpan."""
         pdf_path = Path(pdf_path)
         doc_name = pdf_path.name
         with pdf_path.open("rb") as handle:
@@ -170,7 +117,6 @@ class RAGPipeline:
                 progress_callback(stage, pct, msg)
             logger.info(f"[{stage}] {pct:.0%} — {msg}")
 
-        # ── Cache check ──────────────────────────────────────────────────
         if (not force and self.is_doc_indexed(doc_name)
                 and self._registry[doc_name].get("content_sha256") == content_hash):
             logger.info(f"'{doc_name}' already indexed — skipping ingestion.")
@@ -182,7 +128,6 @@ class RAGPipeline:
         start_time = time.time()
         stats: dict = {}
 
-        # ── Stage 1: Parse PDF ───────────────────────────────────────────
         _cb("parsing", 0.0, f"Memulai parsing {doc_name}...")
         parser = PDFParser(pdf_path)
         pages: List[ParsedPage] = parser.parse(
@@ -216,7 +161,6 @@ class RAGPipeline:
             f"{stats['removed_header_footer_lines']} baris header/footer dihapus",
         )
 
-        # ── Stage 2: Chunk ───────────────────────────────────────────────
         _cb("chunking", 0.0, "Memulai proses chunking...")
         chunker = ProspectusChunker(doc_source=doc_name)
         chunks: List[Chunk] = chunker.chunk_pages(pages)
@@ -227,7 +171,6 @@ class RAGPipeline:
             f"✓ {len(chunks)} chunks ({stats['narrative_chunks']} narasi, "
             f"{stats['table_chunks']} tabel)")
 
-        # ── Stage 3: Embed + Index (APPEND mode) ─────────────────────────
         _cb("embedding", 0.0, f"Memuat model {config.EMBEDDING_MODEL_NAME}...")
 
         def _index_progress(step: str, cur: int, total: int):
@@ -253,7 +196,6 @@ class RAGPipeline:
         stats["indexed_at"] = datetime.now().isoformat(timespec="seconds")
         stats["skipped"] = False
 
-        # ── Save to registry ─────────────────────────────────────────────
         new_metadata = {
             "content_sha256": content_hash,
             "index_schema_version": config.INDEX_SCHEMA_VERSION,
@@ -299,6 +241,8 @@ class RAGPipeline:
         dense_k: int = config.DENSE_TOP_K,
         sparse_k: int = config.SPARSE_TOP_K,
         final_k: int = config.FINAL_TOP_K,
+        *,
+        apply_retrieval_gate: bool = True,
     ) -> GeneratorResponse:
         """
         End-to-end query: question → retrieved context → LLM answer.
@@ -316,7 +260,10 @@ class RAGPipeline:
 
         retrieved = self.retrieve(question, dense_k, sparse_k, final_k)
 
-        if not retrieved or max(r.rrf_score for r in retrieved) < config.MIN_RRF_SCORE:
+        if not retrieved or (
+            apply_retrieval_gate
+            and max(r.rrf_score for r in retrieved) < config.MIN_RRF_SCORE
+        ):
             from src.generation.generator import GeneratorResponse
             return GeneratorResponse(
                 answer="Informasi tersebut tidak tersedia di dokumen prospektus ini.",
@@ -329,7 +276,6 @@ class RAGPipeline:
         if self._generator is None:
             raise RuntimeError("Layanan jawaban belum siap. Periksa konfigurasi OpenRouter.")
 
-        # Extract readable company name from filename for LLM context
         company_name = self._active_doc or "perusahaan ini"
         if company_name:
             import re
@@ -380,9 +326,6 @@ class RAGPipeline:
             doc_source_filter=self._active_doc,
         )
 
-    # ------------------------------------------------------------------ #
-    #  Helpers
-    # ------------------------------------------------------------------ #
 
     def retrieve_comparison(self, question: str, dense_k: int = 10,
                             sparse_k: int = 10, final_k: int = 6) -> dict:

@@ -11,11 +11,10 @@ seluruh identitas chunk relevan yang ditetapkan peneliti. `source_pages` tetap
 dipakai untuk pemeriksaan sitasi. K=1,3,6 adalah pilihan evaluasi operasional
 mengikuti jumlah maksimum enam konteks; proposal mendefinisikan metrik secara umum.
 
-Jalankan `jalankan.ps1 -Mode evaluation` setelah anotasi selesai. Dataset lama
-dapat diperiksa dengan `-RelevanceUnit page`; laporan akan mencantumkan unit page.
-Hasil itu tidak menggantikan penilaian chunk dalam proposal. RAGAS dijalankan
-dengan `python -m scripts.run_evaluation --with-ragas` dari Python 3.12 yang telah
-dipasangi dependensi. Jangan mengubah parameter menggunakan jawaban set uji akhir.
+Buka `Evaluasi_Retrieval_RAGAS.ipynb` di VS Code, lalu jalankan **Run All**.
+Notebook menjalankan evaluasi chunk dan RAGAS menggunakan dataset tujuh prospektus.
+Gunakan Python 3.12 yang telah dipasangi dependensi proyek dan evaluasi.
+Jangan mengubah parameter menggunakan jawaban set uji akhir.
 
 ## Black Box Testing
 

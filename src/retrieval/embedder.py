@@ -1,15 +1,4 @@
-"""
-src/retrieval/embedder.py — Embedding Model Wrapper
-
-Mendukung BAAI/bge-m3 via:
-1. OpenRouter API (baai/bge-m3) — Cepat, tanpa beban komputasi lokal / CPU.
-2. Local SentenceTransformer (BAAI/bge-m3) — Offline fallback.
-
-Fitur:
-- Dimensi 1024
-- Normalisasi L2 untuk Cosine Similarity
-- Query BGE-M3 tanpa instruction prefix
-"""
+"""Menghasilkan embedding BGE-M3 melalui penyedia yang dipilih."""
 
 from __future__ import annotations
 
@@ -66,22 +55,21 @@ def _get_openai_client():
     if _openai_client is None:
         try:
             from openai import OpenAI
-
-            _openai_client = OpenAI(
-                api_key=config.OPENROUTER_API_KEY,
-                base_url=config.OPENROUTER_BASE_URL,
-                timeout=config.OPENROUTER_TIMEOUT,
-                max_retries=config.OPENROUTER_MAX_RETRIES,
-                default_headers={
-                    "HTTP-Referer": "http://localhost:8501",
-                    "X-Title": "IPO Prospectus Q&A",
-                },
-            )
         except ImportError as exc:
             raise RuntimeError(
                 "Paket 'openai' diperlukan untuk embedding OpenRouter. "
                 "Jalankan: pip install openai"
             ) from exc
+        _openai_client = OpenAI(
+            api_key=config.OPENROUTER_API_KEY,
+            base_url=config.OPENROUTER_BASE_URL,
+            timeout=config.OPENROUTER_TIMEOUT,
+            max_retries=config.OPENROUTER_MAX_RETRIES,
+            default_headers={
+                "HTTP-Referer": "http://localhost:8501",
+                "X-Title": "IPO Prospectus Q&A",
+            },
+        )
     return _openai_client
 
 
@@ -114,7 +102,7 @@ class Embedder:
             if not config.OPENROUTER_API_KEY or config.OPENROUTER_API_KEY.startswith("your_"):
                 raise ValueError("Isi OPENROUTER_API_KEY untuk embedding BGE-M3. Provider tidak diganti otomatis.")
             else:
-                self.client = _get_openai_client()
+                self._client = None
                 self.model_name = config.OPENROUTER_EMBEDDING_MODEL
                 logger.info(
                     f"Embedder initialized with OpenRouter: {self.model_name} (dim: {self.embedding_dim})"
@@ -126,6 +114,12 @@ class Embedder:
             logger.info(
                 f"Embedder initialized locally: {config.EMBEDDING_MODEL_NAME} (dim: {self.embedding_dim})"
             )
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = _get_openai_client()
+        return self._client
 
     def embed_texts(
         self,

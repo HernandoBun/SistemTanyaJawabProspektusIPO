@@ -1,14 +1,4 @@
-"""
-app.py — Sistem Tanya Jawab Prospektus IPO
-Streamlit Web Application
-
-Fitur:
-- Pemilihan prospektus yang sudah diproses secara offline
-- Chat interface dengan chat history
-- Sitasi halaman sumber untuk setiap jawaban
-- Tampilan chunk konteks (expandable)
-- Statistik sistem (chunk count, model info)
-"""
+"""Antarmuka Streamlit untuk sistem tanya jawab prospektus IPO."""
 
 import logging
 import html
@@ -17,7 +7,6 @@ import sys
 
 import streamlit as st
 
-# ---- Setup logging ----
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -25,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---- Page config MUST be first Streamlit call ----
+# Streamlit requires page configuration before other UI calls.
 st.set_page_config(
     page_title="Sistem Tanya Jawab Prospektus IPO",
     page_icon=":material/description:",
@@ -33,13 +22,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Keep styling separate from application logic.
 st.markdown(
     "<style>" + (Path(__file__).parent / "src/ui/styles.css").read_text(encoding="utf-8") + "</style>",
     unsafe_allow_html=True,
 )
 
-# ---- Import Pipeline (after page config) ----
 import config
 from src.ui.state import init_session
 from src.ui.utils import get_ticker_from_filename, get_prospectus_year, get_prospectus_label
@@ -68,22 +55,15 @@ def load_pipeline():
     return st.session_state.pipeline
 
 
-# ============================================================
-#  Session State
-# ============================================================
 init_session()
 
 
-# ============================================================
-#  Sidebar Navigation
-# ============================================================
 def render_sidebar():
     with st.sidebar:
         st.subheader("Sistem Tanya Jawab Prospektus IPO")
         st.caption("Dokumen dan tanya jawab")
         st.divider()
         pages = ["Beranda", "Manajemen Emiten", "Tanya Jawab", "Tentang"]
-        # Normalize page names from sessions opened before the UI update.
         current = st.session_state.current_page.replace("Pilih Dokumen", "Manajemen Emiten")
         current = next((page for page in pages if current.endswith(page)), "Beranda")
         st.session_state.current_page = current
@@ -107,7 +87,6 @@ def render_home():
     active_doc = pipeline.get_active_document()
     active_ticker = get_prospectus_label(active_doc) if active_doc else None
 
-    # Status emiten aktif
     if active_ticker:
         status_badge = f'<div class="home-badge active">Emiten Aktif: &nbsp;<strong>{html.escape(active_ticker)}</strong></div>'
     else:
@@ -342,7 +321,6 @@ def _render_message(msg: dict):
                         value = getattr(obj, field, "") if obj else chunk.get(field, "")
                         if value:
                             st.caption(f"{label}: {value}")
-                    # Native Markdown preserves full tables, links and paragraph formatting.
                     st.markdown(chunk.get("content", ""))
 
 
@@ -393,15 +371,11 @@ def _generate_and_append_response(question: str, pipeline):
     st.rerun()
 
 
-
-# ============================================================
-#  Main Entry Point (Router)
-# ============================================================
 def main():
     render_sidebar()
-    
+
     page = st.session_state.current_page
-    
+
     # Explicitly replace the whole page before any slow retrieval/generation.
     # Streamlit otherwise retains stale elements from the previous run until it ends.
     page_slot = st.empty()

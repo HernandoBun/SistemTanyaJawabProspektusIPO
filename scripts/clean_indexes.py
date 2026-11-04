@@ -9,30 +9,25 @@ import shutil
 import sys
 from pathlib import Path
 
-# Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import config
 
 def clean_all(delete_parse_cache: bool = False):
     print("Mereset seluruh indeks (ChromaDB + BM25 + Registry)...")
-    
-    # 1. Hapus ChromaDB
+
     if config.CHROMA_DIR.exists():
         shutil.rmtree(config.CHROMA_DIR, ignore_errors=True)
         config.CHROMA_DIR.mkdir(parents=True, exist_ok=True)
         print("  [OK] ChromaDB collection dibersihkan.")
 
-    # 2. Hapus BM25 Index
     if config.BM25_INDEX_PATH.exists():
         config.BM25_INDEX_PATH.unlink(missing_ok=True)
         print("  [OK] Berkas BM25 index dibersihkan.")
 
-    # 3. Hapus Registry
     if config.CACHE_REGISTRY_PATH.exists():
         config.CACHE_REGISTRY_PATH.unlink(missing_ok=True)
         print("  [OK] Berkas registry dokumen dibersihkan.")
 
-    # 4. Opsional: Hapus cache parsed JSON
     if delete_parse_cache and config.PARSED_CACHE_DIR.exists():
         shutil.rmtree(config.PARSED_CACHE_DIR, ignore_errors=True)
         config.PARSED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -44,16 +39,15 @@ def remove_doc(doc_name: str):
     print(f"Menghapus dokumen '{doc_name}' dari ChromaDB dan BM25...")
     from src.retrieval.indexer import DualIndexer
     import json
-    
+
     indexer = DualIndexer()
     if not indexer.load_index():
         print("  [!] Indeks belum ada atau kosong.")
         return
-        
+
     success = indexer.remove_document(doc_name)
     if success:
         print(f"  [OK] '{doc_name}' berhasil dihapus dari ChromaDB dan BM25.")
-        # Update registry
         if config.CACHE_REGISTRY_PATH.exists():
             try:
                 registry = json.loads(config.CACHE_REGISTRY_PATH.read_text(encoding="utf-8"))
@@ -71,7 +65,7 @@ def main():
     parser.add_argument("--all", action="store_true", help="Reset total semua indeks dan registry")
     parser.add_argument("--doc", type=str, help="Hapus hanya dokumen tertentu (contoh: BACH_2026.pdf)")
     parser.add_argument("--delete-parsed-cache", action="store_true", help="Ikut hapus cache JSON hasil parsing LlamaParse")
-    
+
     args = parser.parse_args()
     if args.all:
         clean_all(delete_parse_cache=args.delete_parsed_cache)

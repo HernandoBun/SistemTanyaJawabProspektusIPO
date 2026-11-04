@@ -132,4 +132,3 @@ def test_clean_generated_answer_removes_prose_page_citations():
     assert "Johan A.M.M. Hutauruk" in cleaned
     assert "Budi Djatmiko" in cleaned
     assert "Ngo Adrian" in cleaned
-

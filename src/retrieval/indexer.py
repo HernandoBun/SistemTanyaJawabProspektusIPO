@@ -12,7 +12,9 @@ from __future__ import annotations
 import logging
 import pickle
 from collections import Counter, defaultdict
+from functools import lru_cache
 from pathlib import Path
+from threading import RLock
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -28,6 +30,27 @@ import config
 logger = logging.getLogger(__name__)
 
 
+# All sessions only read these snapshots. Rebuilds replace their dictionaries
+# rather than mutating the shared corpus. Keep just the latest file in cache.
+_bm25_snapshot_lock = RLock()
+
+
+@lru_cache(maxsize=1)
+def _read_bm25_snapshot(path: str, revision: tuple) -> dict:
+    """Unpickle once per file revision; callers hold _bm25_snapshot_lock."""
+    logger.info("Reading BM25 snapshot from disk: %s", path)
+    with open(path, "rb") as handle:
+        return pickle.load(handle)
+
+
+def _get_bm25_snapshot() -> dict:
+    path = config.BM25_INDEX_PATH.resolve()
+    stat = path.stat()
+    # The inode also detects an atomic replacement with the same size/mtime.
+    revision = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+    return _read_bm25_snapshot(str(path), revision)
+
+
 class DualIndexer:
     """
     Manages both ChromaDB (dense) and BM25 (sparse) indices.
@@ -36,14 +59,12 @@ class DualIndexer:
     def __init__(self):
         self.embedder = Embedder()
 
-        # --- ChromaDB Setup ---
         self._chroma_client = chromadb.PersistentClient(
             path=str(config.CHROMA_DIR),
             settings=Settings(anonymized_telemetry=False),
         )
         self._collection: Optional[chromadb.Collection] = None
 
-        # --- BM25 State (one independent corpus per prospectus) ---
         self._bm25_by_document: Dict[str, BM25Okapi] = {}
         self._corpus_chunks_by_document: Dict[str, List[Chunk]] = {}
         self._corpus_chunks: List[Chunk] = []
@@ -69,9 +90,6 @@ class DualIndexer:
                 f"hnsw:space={config.CHROMA_DISTANCE_SPACE!r}."
             )
 
-    # ------------------------------------------------------------------ #
-    #  Public: Build Index
-    # ------------------------------------------------------------------ #
 
     def build_index(
         self,
@@ -80,15 +98,7 @@ class DualIndexer:
         reset: bool = False,
         embeddings=None,
     ) -> None:
-        """
-        Build or append to both dense (ChromaDB) and sparse (BM25) indices.
-
-        Args:
-            chunks: List of Chunk objects to index.
-            progress_callback: Optional callable(step, current, total)
-            reset: If True, wipe everything and start fresh.
-                   If False (default), APPEND new chunks to existing index.
-        """
+        """Menyimpan chunk pada indeks dense dan memperbarui BM25 per dokumen."""
         if not chunks:
             logger.warning("No chunks to index!")
             return
@@ -111,7 +121,6 @@ class DualIndexer:
             raise ValueError("Jumlah embedding tidak sesuai jumlah chunk.")
         logger.info(f"{'Resetting and building' if reset else 'Appending'} index for {len(chunks)} chunks...")
 
-        # ---- ChromaDB ----
         if reset:
             try:
                 self._chroma_client.delete_collection(config.CHROMA_COLLECTION_NAME)
@@ -121,7 +130,6 @@ class DualIndexer:
             self._collection = self._create_cosine_collection()
             old_corpus_chunks: List[Chunk] = []
         else:
-            # Append mode: get or create collection
             try:
                 self._collection = self._chroma_client.get_collection(config.CHROMA_COLLECTION_NAME)
                 self._validate_cosine_collection(self._collection)
@@ -135,7 +143,6 @@ class DualIndexer:
                         "Jalankan scripts.rebuild_indexes agar indeks dibuat ulang "
                         "dengan cosine distance."
                     ) from exc
-            # Load existing corpus for BM25 rebuild
             old_corpus_chunks = list(self._corpus_chunks)
 
             # Chroma IDs are global inside a collection. Abort instead of
@@ -157,7 +164,6 @@ class DualIndexer:
         if progress_callback:
             progress_callback("indexing_dense", 0, len(chunks))
 
-        # Add new chunks to ChromaDB in batches of 500
         batch_size = 500
         for i in range(0, len(chunks), batch_size):
             batch_chunks = chunks[i:i + batch_size]
@@ -180,7 +186,6 @@ class DualIndexer:
             )
             logger.info(f"  ChromaDB: added {min(i + batch_size, len(chunks))}/{len(chunks)}")
 
-        # ---- BM25: rebuild with old + new chunks ----
         if progress_callback:
             progress_callback("indexing_sparse", 0, len(chunks))
 
@@ -200,11 +205,9 @@ class DualIndexer:
         if self._collection is None:
             return False
         try:
-            # Remove from ChromaDB
             self._collection.delete(where={"doc_source": doc_source})
             logger.info(f"Removed '{doc_source}' from ChromaDB")
 
-            # Rebuild BM25 without this doc
             remaining = [c for c in self._corpus_chunks if c.doc_source != doc_source]
             self._rebuild_bm25_by_document(remaining)
             self._save_bm25()
@@ -249,9 +252,6 @@ class DualIndexer:
                 ) from recovery_error
             raise
 
-    # ------------------------------------------------------------------ #
-    #  Public: Load Existing Index
-    # ------------------------------------------------------------------ #
 
     def load_index(self) -> bool:
         """
@@ -260,7 +260,6 @@ class DualIndexer:
         Returns:
             True if successfully loaded, False if no index exists.
         """
-        # Load ChromaDB
         try:
             self._collection = self._chroma_client.get_collection(
                 config.CHROMA_COLLECTION_NAME
@@ -273,7 +272,6 @@ class DualIndexer:
             logger.warning(f"ChromaDB collection not found: {e}")
             return False
 
-        # Load BM25
         if not self._load_bm25():
             logger.warning("BM25 index not found.")
             return False
@@ -306,9 +304,6 @@ class DualIndexer:
         )
         return {"chroma": dict(chroma_counts), "bm25": dict(bm25_counts)}
 
-    # ------------------------------------------------------------------ #
-    #  Public: Query
-    # ------------------------------------------------------------------ #
 
     def dense_search(
         self,
@@ -405,9 +400,6 @@ class DualIndexer:
 
         return results
 
-    # ------------------------------------------------------------------ #
-    #  Private: BM25 Persistence
-    # ------------------------------------------------------------------ #
 
     def _rebuild_bm25_by_document(self, chunks: List[Chunk]) -> None:
         """Build independent BM25 statistics for every prospectus."""
@@ -436,30 +428,34 @@ class DualIndexer:
         with open(temporary, "wb") as f:
             pickle.dump(data, f)
         temporary.replace(config.BM25_INDEX_PATH)
+        with _bm25_snapshot_lock:
+            _read_bm25_snapshot.cache_clear()
         logger.info(f"BM25 index saved to {config.BM25_INDEX_PATH}")
 
     def _load_bm25(self) -> bool:
-        """Load BM25 index and corpus from disk."""
+        """Reuse a read-only BM25 snapshot across independent user sessions."""
         if not config.BM25_INDEX_PATH.exists():
             return False
         try:
-            with open(config.BM25_INDEX_PATH, "rb") as f:
-                data = pickle.load(f)
-            if data.get("schema_version") == config.BM25_INDEX_SCHEMA_VERSION:
+            # lru_cache alone permits duplicate cold loads in different threads.
+            # Serialize lookup + loading so simultaneous sessions share one copy.
+            with _bm25_snapshot_lock:
+                data = _get_bm25_snapshot()
+                if data.get("schema_version") != config.BM25_INDEX_SCHEMA_VERSION:
+                    legacy_chunks = data.get("corpus_chunks", [])
+                    if not legacy_chunks:
+                        raise ValueError("Corpus BM25 lama kosong atau tidak valid.")
+                    logger.warning(
+                        "Rebuilding stored BM25 corpus with current per-document tokenization."
+                    )
+                    self._rebuild_bm25_by_document(legacy_chunks)
+                    self._save_bm25()
+                    data = _get_bm25_snapshot()
                 self._bm25_by_document = data["bm25_by_document"]
                 self._corpus_chunks_by_document = data["corpus_chunks_by_document"]
                 self._corpus_chunks = data["corpus_chunks"]
-            else:
-                legacy_chunks = data.get("corpus_chunks", [])
-                if not legacy_chunks:
-                    raise ValueError("Corpus BM25 lama kosong atau tidak valid.")
-                logger.warning(
-                    "Rebuilding stored BM25 corpus with current per-document tokenization."
-                )
-                self._rebuild_bm25_by_document(legacy_chunks)
-                self._save_bm25()
             logger.info(
-                "BM25 per-document loaded: %d chunks across %d documents",
+                "BM25 per-document ready (shared snapshot): %d chunks across %d documents",
                 len(self._corpus_chunks),
                 len(self._bm25_by_document),
             )

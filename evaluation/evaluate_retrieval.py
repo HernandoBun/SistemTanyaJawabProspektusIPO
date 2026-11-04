@@ -71,6 +71,7 @@ def evaluate(
     output_path: str | Path | None = None,
     pipeline: "RAGPipeline | None" = None,
     relevance_unit: str = "page",
+    progress_callback=None,
 ) -> dict:
     if relevance_unit not in {"page", "chunk"}:
         raise ValueError("relevance_unit harus page atau chunk")
@@ -100,7 +101,7 @@ def evaluate(
                                       params.get("final_k"))) for name, params in methods.items()}
     # Inspect the class to avoid treating dynamically generated Mock attributes as an API.
     shared_pools = callable(getattr(type(pipeline), "retrieve_comparison", None)) and all(method_keys.values())
-    for question in questions:
+    for question_number, question in enumerate(questions, 1):
         pipeline.set_active_document(question["doc_source"])
         comparison = pipeline.retrieve_comparison(question["question"]) if shared_pools else None
         for method_name, parameters in methods.items():
@@ -170,6 +171,8 @@ def evaluate(
                     for name, candidates in comparison["candidate_rankings"].items()
                 }
             all_results[method_name].append(row)
+        if progress_callback is not None:
+            progress_callback(question_number, len(questions))
 
     summary = summarize(all_results)
     payload = {"relevance_unit": relevance_unit, "methods": methods,

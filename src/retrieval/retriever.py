@@ -1,16 +1,4 @@
-"""
-src/retriever.py — Hybrid Search with Reciprocal Rank Fusion (RRF)
-
-Menggabungkan:
-1. Dense Retrieval: Pencarian semantik via ChromaDB + BAAI/bge-m3
-2. Sparse Retrieval: Pencarian leksikal via BM25Okapi
-3. RRF: Reranking matematis untuk menggabungkan hasil kedua pencarian
-
-Formula RRF:
-    score(d) = Σ 1 / (k + rank_i(d))
-    
-Dimana k=60 (konstanta RRF), rank_i adalah posisi dokumen d di hasil pencarian i.
-"""
+"""Mencari chunk melalui BM25, dense retrieval, dan RRF."""
 
 from __future__ import annotations
 
@@ -37,10 +25,6 @@ class RetrievedChunk:
     dense_score: float
     sparse_score: float
 
-
-# ------------------------------------------------------------------ #
-#  Domain-Specific Query Expansion (Indonesian Financial & Prospectus)
-# ------------------------------------------------------------------ #
 
 PROSPECTUS_DOMAIN_EXPANSIONS = {
     "laba bersih": ["laba tahun berjalan", "laba neto"],
@@ -123,26 +107,11 @@ class HybridRetriever:
         rrf_k: int = config.RRF_K,
         doc_source_filter: str | None = None,
     ) -> List[RetrievedChunk]:
-        """
-        Perform hybrid search and return top-k reranked chunks.
-
-        Args:
-            query: User's question string.
-            dense_k: How many candidates to fetch from ChromaDB.
-            sparse_k: How many candidates to fetch from BM25.
-            final_k: Final number of chunks to return after RRF.
-            rrf_k: RRF constant (higher = more uniform merging).
-
-        Returns:
-            List of RetrievedChunk objects sorted by RRF score descending.
-        """
-        # Expand query for retrieval using prospectus domain terms
+        """Menggabungkan kandidat sparse dan dense dari dokumen aktif melalui RRF."""
         search_query = expand_query_for_retrieval(query)
 
-        # ---- Step 1: Embed the query ----
         query_embedding = self.embedder.embed_query(search_query) if dense_k > 0 else None
 
-        # ---- Step 2: Dense search ----
         dense_results: List[Tuple[Chunk, float]] = (
             self.indexer.dense_search(
                 query_embedding, k=dense_k, doc_source_filter=doc_source_filter
@@ -151,7 +120,6 @@ class HybridRetriever:
         )
         logger.debug(f"Dense search returned {len(dense_results)} results")
 
-        # ---- Step 3: Sparse search ----
         sparse_results: List[Tuple[Chunk, float]] = (
             self.indexer.sparse_search(
                 search_query, k=sparse_k, doc_source_filter=doc_source_filter
@@ -160,14 +128,12 @@ class HybridRetriever:
         )
         logger.debug(f"Sparse search returned {len(sparse_results)} results")
 
-        # ---- Step 4: Reciprocal Rank Fusion ----
         fused = self._rrf_merge(
             dense_results,
             sparse_results,
             rrf_k=rrf_k,
         )
 
-        # Return top final_k
         top_results = fused[:final_k]
 
         logger.info(
@@ -213,7 +179,6 @@ class HybridRetriever:
 
         Documents not present in a ranking list get no contribution from that list.
         """
-        # Build lookup dicts: content_key → (chunk, score, rank)
         dense_map: Dict[tuple[str, str], Tuple[Chunk, float, int]] = {}
         for rank, (chunk, score) in enumerate(dense_results, start=1):
             key = self._chunk_key(chunk)
@@ -224,13 +189,11 @@ class HybridRetriever:
             key = self._chunk_key(chunk)
             sparse_map[key] = (chunk, score, rank)
 
-        # Collect all unique chunk keys
         all_keys = set(dense_map.keys()) | set(sparse_map.keys())
 
         fused_chunks: List[RetrievedChunk] = []
 
         for key in all_keys:
-            # Dense contribution
             if key in dense_map:
                 chunk, d_score, d_rank = dense_map[key]
                 d_rrf = 1.0 / (rrf_k + d_rank)
@@ -238,11 +201,9 @@ class HybridRetriever:
                 chunk, d_score, d_rank = sparse_map[key][0], 0.0, 0
                 d_rrf = 0.0
 
-            # Sparse contribution
             if key in sparse_map:
                 s_chunk, s_score, s_rank = sparse_map[key]
                 s_rrf = 1.0 / (rrf_k + s_rank)
-                # Prefer the chunk from whichever source found it
                 if key not in dense_map:
                     chunk = s_chunk
             else:
@@ -260,7 +221,6 @@ class HybridRetriever:
                 sparse_score=s_score,
             ))
 
-        # Sort by RRF score descending
         fused_chunks.sort(key=lambda x: (-x.rrf_score, x.chunk.doc_source, x.chunk.chunk_id))
         return fused_chunks
 

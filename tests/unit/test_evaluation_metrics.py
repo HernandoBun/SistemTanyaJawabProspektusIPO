@@ -28,4 +28,3 @@ def test_retrieval_metrics():
     assert recall_at_k([9, 5, 3], [5], 2) == 1.0
     assert reciprocal_rank([9, 5, 3], [5]) == 0.5
     assert citation_page_accuracy([5, 7], [7]) == 1.0
-

@@ -1,14 +1,4 @@
-"""
-src/chunker.py — Advanced Chunking Strategy
-
-Strategi:
-1. Structural Chunking: Teks narasi dipecah berdasarkan heading Markdown (#, ##, ###)
-   dengan sliding window dan overlap untuk menjaga konteks.
-2. Table Isolation: Setiap tabel dipertahankan sebagai satu chunk atomik.
-   Parent heading ditambahkan sebagai prefiks konteks (Parent-Child Architecture).
-
-Output: List of Chunk dataclass objects dengan metadata lengkap.
-"""
+"""Membagi narasi dan tabel prospektus menjadi chunk."""
 
 from __future__ import annotations
 
@@ -29,21 +19,19 @@ logger = logging.getLogger(__name__)
 class Chunk:
     """Represents a single text/table chunk ready for embedding."""
     chunk_id: str
-    content: str               # Teks yang akan di-embed
+    content: str
     chunk_type: str            # "narrative" | "table"
     page_number: int
-    section_heading: str       # Heading/section terdekat di atas chunk ini
-    doc_source: str            # Nama file PDF asli
-    # --- Metadata enrichment (Poin 4) ---
-    chapter: str = ""          # "BAB I", "BAB V", dll
-    subchapter: str = ""       # "5.1 Pendapatan Usaha"
-    table_title: str = ""      # Judul tabel jika chunk_type == "table"
-    financial_unit: str = ""   # "(dalam jutaan Rupiah)" — kritis untuk angka!
+    section_heading: str
+    doc_source: str
+    chapter: str = ""
+    subchapter: str = ""
+    table_title: str = ""
+    financial_unit: str = ""
     char_count: int = field(init=False)
 
     def __post_init__(self):
         self.char_count = len(self.content)
-
 
 
 def _detect_heading(text: str) -> Optional[str]:
@@ -57,15 +45,12 @@ def _detect_heading(text: str) -> Optional[str]:
 
     first_line = lines[0].strip()
 
-    # Markdown heading
     if re.match(r'^#{1,4}\s+.+', first_line):
         return re.sub(r'^#{1,4}\s+', '', first_line).strip()
 
-    # ALL-CAPS line (common in Indonesian legal docs)
     if len(first_line) > 5 and first_line.isupper():
         return first_line
 
-    # Roman numerals (BAB I, BAB II, etc.)
     if re.match(r'^(BAB|Bab)\s+[IVXLCDM\d]+', first_line, re.IGNORECASE):
         return first_line
 
@@ -137,9 +122,6 @@ def _split_by_headings(
     Split a block of text into sections by heading markers.
     Returns list of {'heading': str, 'content': str, 'page': int}
     """
-    # Pattern: line that looks like a section heading
-    # Markdown: # heading, ## heading
-    # Caps-lock: ANALISIS DAN PEMBAHASAN MANAJEMEN
     heading_pattern = re.compile(
         r'(?m)^(?:#{1,4}\s+.+|[A-Z][A-Z\s]{10,}|(?:BAB|Bab)\s+[IVXLCDM\d]+[^\n]*)$'
     )
@@ -150,7 +132,6 @@ def _split_by_headings(
     matches = list(heading_pattern.finditer(text))
 
     for i, match in enumerate(matches):
-        # Content before this heading belongs to current heading
         content_before = text[pos:match.start()].strip()
         if content_before:
             sections.append({
@@ -162,7 +143,6 @@ def _split_by_headings(
         current_heading = match.group(0).strip()
         pos = match.end()
 
-    # Remaining text after last heading
     remaining = text[pos:].strip()
     if remaining:
         sections.append({
@@ -199,7 +179,6 @@ def _sliding_window_split(text: str, chunk_size: int, overlap: int) -> List[str]
             chunks.append(text[start:].strip())
             break
 
-        # Try to find a good split point (sentence boundary)
         split_pos = -1
         for sep in ['\n\n', '\n', '. ', '? ', '! ']:
             idx = text.rfind(sep, start + chunk_size // 2, end)
@@ -250,7 +229,6 @@ class ProspectusChunker:
         self._current_heading: str = "Pendahuluan"
         self._current_chapter: str = ""
         self._current_subchapter: str = ""
-        # State for cross-page table merging
         self._pending_table: Optional[str] = None
         self._pending_heading: str = ""
         self._pending_page: int = 0
@@ -271,7 +249,6 @@ class ProspectusChunker:
             all_chunks.extend(self._chunk_narrative(page))
             all_chunks.extend(self._chunk_tables(page))
 
-        # Flush any remaining pending cross-page table
         if self._pending_table:
             all_chunks.append(self._flush_pending_table())
 
@@ -358,11 +335,9 @@ class ProspectusChunker:
                 logger.debug(f"Merged cross-page table at page {page.page_number}")
                 continue
 
-            # Flush completed pending table
             if self._pending_table:
                 chunks.append(self._flush_pending_table())
 
-            # Store new table as pending
             self._pending_table = table_md
             self._pending_heading = page_heading
             self._pending_page = page.page_number
@@ -395,7 +370,6 @@ class ProspectusChunker:
             table_title=self._pending_title,
             financial_unit=self._pending_unit,
         )
-        # Reset state
         self._pending_table = None
         self._pending_heading = ""
         self._pending_page = 0

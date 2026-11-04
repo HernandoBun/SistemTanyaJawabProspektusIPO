@@ -29,14 +29,31 @@ def test_best_rrf_score_gates_generation(monkeypatch, score, expected_calls):
         assert len(response.retrieval_candidates) == 1
 
 
-def test_no_retrieval_does_not_initialize_llm():
+@pytest.mark.parametrize("apply_gate", [True, False])
+def test_no_retrieval_does_not_initialize_llm(apply_gate):
     pipeline = object.__new__(RAGPipeline)
     pipeline._is_ready = True
     pipeline._active_doc = 'TEST.pdf'
     pipeline._generator = None
     pipeline._init_generator = Mock(side_effect=AssertionError('LLM should not load'))
     pipeline.retrieve = Mock(return_value=[])
-    assert pipeline.query('Berapa aset?').source_pages == []
+    assert pipeline.query('Berapa aset?', apply_retrieval_gate=apply_gate).source_pages == []
+
+
+def test_evaluation_passes_single_retriever_contexts_to_generator(monkeypatch):
+    monkeypatch.setattr(config, "MIN_RRF_SCORE", .02)
+    pipeline = object.__new__(RAGPipeline)
+    pipeline._is_ready = True
+    pipeline._active_doc = "TEST.pdf"
+    pipeline._generator = Mock()
+    candidates = [SimpleNamespace(rrf_score=1 / (61 + i)) for i in range(6)]
+    pipeline.retrieve = Mock(return_value=candidates)
+
+    response = pipeline.query("Berapa aset?", apply_retrieval_gate=False)
+
+    assert response is pipeline._generator.generate.return_value
+    pipeline._generator.generate.assert_called_once_with(
+        question="Berapa aset?", retrieved_chunks=candidates, company_name="TEST")
 
 
 def test_dns_failure_is_actionable(monkeypatch):

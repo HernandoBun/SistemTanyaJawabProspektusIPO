@@ -6,6 +6,7 @@ import math
 import os
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import config
 
@@ -53,6 +54,22 @@ class RagasScore:
         return {"score": self.score, "reason": self.reason}
 
 
+class RagasMetricError(RuntimeError):
+    """Keep completed metrics when a later metric fails."""
+
+    def __init__(self, metric: str, partial_scores: dict, error: Exception):
+        self.metric = metric
+        self.partial_scores = dict(partial_scores)
+        details = str(error)
+        if any(term in details.lower() for term in ("max_tokens", "finish_reason='length'", "output is incomplete")):
+            description = "Keluaran evaluator terpotong oleh batas token."
+        else:
+            description = (details.splitlines() or [type(error).__name__])[0][:400]
+        if config.OPENROUTER_API_KEY:
+            description = description.replace(config.OPENROUTER_API_KEY, "[redacted]")
+        super().__init__(f"{metric}: {type(error).__name__}: {description}")
+
+
 class RagasEvaluator:
     """Score one RAG response with four reference-based RAGAS metrics.
 
@@ -60,7 +77,11 @@ class RagasEvaluator:
     evaluation can therefore run without loading RAGAS or the embedding model.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, max_tokens: int | None = None, reasoning_enabled: bool = False) -> None:
+        self.max_tokens = max_tokens if max_tokens is not None else config.RAGAS_EVALUATOR_MAX_TOKENS
+        if self.max_tokens <= 0:
+            raise ValueError("Batas token evaluator harus lebih dari nol.")
+        self.reasoning_enabled = reasoning_enabled
         if not config.OPENROUTER_API_KEY or config.OPENROUTER_API_KEY.startswith("your_"):
             raise ValueError(
                 "OPENROUTER_API_KEY tidak ditemukan; RAGAS memerlukan evaluator LLM."
@@ -117,12 +138,16 @@ class RagasEvaluator:
                 "X-Title": "IPO Prospectus Q&A",
             },
         )
+        request_options = {}
+        if urlsplit(config.OPENROUTER_BASE_URL).hostname == "openrouter.ai":
+            request_options["extra_body"] = {"reasoning": {"enabled": reasoning_enabled}}
         evaluator_llm = llm_factory(
             config.RAGAS_EVALUATOR_MODEL,
             provider="openai",
             client=self._client,
             temperature=config.RAGAS_EVALUATOR_TEMPERATURE,
-            max_tokens=config.RAGAS_EVALUATOR_MAX_TOKENS,
+            max_tokens=self.max_tokens,
+            **request_options,
         )
         evaluator_embeddings = ProjectBgeM3Embeddings()
         # Preserve a single event loop and HTTP connection pool across every metric/sample.
@@ -138,13 +163,15 @@ class RagasEvaluator:
         }
 
     @property
-    def metadata(self) -> dict[str, str]:
+    def metadata(self) -> dict[str, Any]:
         return {
             "ragas_api": "collections-v0.4",
             "evaluator_model": config.RAGAS_EVALUATOR_MODEL,
             "embedding_model": config.EMBEDDING_MODEL_NAME,
             "embedding_provider": config.EMBEDDING_PROVIDER,
             "context_source": "generation_context_texts",
+            "max_tokens": self.max_tokens,
+            "reasoning_enabled": self.reasoning_enabled,
         }
 
     def score(
@@ -154,11 +181,16 @@ class RagasEvaluator:
         answer: str,
         reference: str,
         contexts: list[str],
+        existing_scores: dict | None = None,
+        on_metric_scored=None,
     ) -> dict[str, dict[str, float | str | None]]:
         """Return faithfulness, relevancy, precision, and recall scores."""
-        return self._runner.run(self.ascore(
-            question=question, answer=answer, reference=reference, contexts=contexts
-        ))
+        arguments = dict(question=question, answer=answer, reference=reference, contexts=contexts)
+        if existing_scores:
+            arguments["existing_scores"] = existing_scores
+        if on_metric_scored is not None:
+            arguments["on_metric_scored"] = on_metric_scored
+        return self._runner.run(self.ascore(**arguments))
 
     def close(self) -> None:
         try:
@@ -167,35 +199,32 @@ class RagasEvaluator:
             self._runner.close()
 
     async def ascore(
-        self, *, question: str, answer: str, reference: str, contexts: list[str]
+        self, *, question: str, answer: str, reference: str, contexts: list[str],
+        existing_scores: dict | None = None, on_metric_scored=None,
     ) -> dict[str, dict[str, float | str | None]]:
         if not contexts:
             raise ValueError("RAGAS tidak dapat dijalankan tanpa retrieved contexts.")
 
-        raw_results = {
-            "faithfulness": await self.metrics["faithfulness"].ascore(
-                user_input=question,
-                response=answer,
-                retrieved_contexts=contexts,
-            ),
-            "answer_relevancy": await self.metrics["answer_relevancy"].ascore(
-                user_input=question,
-                response=answer,
-            ),
-            "context_precision": await self.metrics["context_precision"].ascore(
-                user_input=question,
-                reference=reference,
-                retrieved_contexts=contexts,
-            ),
-            "context_recall": await self.metrics["context_recall"].ascore(
-                user_input=question,
-                reference=reference,
-                retrieved_contexts=contexts,
-            ),
+        inputs = {
+            "faithfulness": dict(user_input=question, response=answer, retrieved_contexts=contexts),
+            "answer_relevancy": dict(user_input=question, response=answer),
+            "context_precision": dict(user_input=question, reference=reference, retrieved_contexts=contexts),
+            "context_recall": dict(user_input=question, reference=reference, retrieved_contexts=contexts),
         }
-
-        normalized = {}
-        for name, result in raw_results.items():
-            value, reason = metric_result_value_reason(result)
-            normalized[name] = RagasScore(value, reason).as_dict()
+        normalized = dict(existing_scores or {})
+        if any(name not in RAGAS_METRIC_NAMES for name in normalized):
+            raise ValueError("Checkpoint berisi nama metrik RAGAS yang tidak dikenal.")
+        for item in normalized.values():
+            metric_result_value_reason(item["score"])
+        for name in RAGAS_METRIC_NAMES:
+            if name in normalized:
+                continue
+            try:
+                result = await self.metrics[name].ascore(**inputs[name])
+                value, reason = metric_result_value_reason(result)
+                normalized[name] = RagasScore(value, reason).as_dict()
+            except Exception as exc:
+                raise RagasMetricError(name, normalized, exc) from exc
+            if on_metric_scored is not None:
+                on_metric_scored(name, normalized[name])
         return normalized

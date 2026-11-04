@@ -1,15 +1,4 @@
-"""
-src/parser.py — PDF Parser for IPO Prospectus Documents
-
-Strategi (urutan prioritas):
-1. LlamaParse (Primary): Mengirim PDF ke LlamaParse API untuk ekstraksi
-   teks dan tabel dalam format Markdown yang presisi.
-   → Membutuhkan LLAMA_CLOUD_API_KEY di .env
-2. pdfplumber (Fallback): Jika LlamaParse tidak tersedia atau gagal,
-   gunakan pdfplumber lokal.
-
-Output: List of ParsedPage objects dengan metadata halaman.
-"""
+"""Mengekstrak prospektus melalui LlamaParse atau parser PDF lokal."""
 
 from __future__ import annotations
 
@@ -41,9 +30,9 @@ logger = logging.getLogger(__name__)
 class ParsedPage:
     """Represents a single parsed page from the PDF."""
     page_number: int          # 1-indexed
-    text_content: str         # Narrative text (tables removed / clean)
-    tables: List[str]         # Each table as Markdown string
-    raw_text: str             # Full raw text (including any table content)
+    text_content: str
+    tables: List[str]
+    raw_text: str
     removed_header_footer: List[str] = field(default_factory=list)
     preprocessing_stats: dict = field(default_factory=dict)
 
@@ -163,10 +152,6 @@ def _save_parse_cache(
     return path
 
 
-# ------------------------------------------------------------------ #
-#  Utility: table extraction from Markdown text
-# ------------------------------------------------------------------ #
-
 def _extract_md_tables(markdown_text: str) -> tuple[str, list[str]]:
     """
     Given a Markdown string, extract all Markdown table blocks.
@@ -183,15 +168,10 @@ def _extract_md_tables(markdown_text: str) -> tuple[str, list[str]]:
     for match in table_pattern.finditer(markdown_text):
         tables_found.append(match.group(0).strip())
 
-    # Remove tables from text
     clean_text = table_pattern.sub('\n', markdown_text).strip()
 
     return clean_text, tables_found
 
-
-# ------------------------------------------------------------------ #
-#  Parser 1: LlamaParse
-# ------------------------------------------------------------------ #
 
 def _parse_with_llamaparse(
     pdf_path: Path,
@@ -217,7 +197,7 @@ def _parse_with_llamaparse(
         message = (
             f"LlamaParse tidak dapat dimuat ({missing}). "
             "Pasang requirements.txt pada Python 3.12 yang digunakan proyek, "
-            "lalu jalankan .\\proses_dokumen.ps1 -Check."
+            "lalu ulangi pemrosesan dengan python -m scripts.ingest_documents."
         )
         if strict:
             raise ParserError(message)
@@ -228,9 +208,9 @@ def _parse_with_llamaparse(
         logger.info(f"Parsing with LlamaParse: {pdf_path.name}")
         parser = LlamaParse(
             api_key=api_key,
-            result_type="markdown",      # Get rich Markdown with table support
+            result_type="markdown",
             verbose=False,
-            language="id",               # Indonesian language hint
+            language="id",
             system_prompt=(
                 "Transkripsikan SELURUH isi setiap halaman Prospektus IPO ini "
                 "secara setia ke Markdown. Pertahankan semua narasi, judul, "
@@ -258,7 +238,6 @@ def _parse_with_llamaparse(
             page_num = i + 1
             md_content = doc.text or ""
 
-            # Extract tables from Markdown
             clean_text, tables = _extract_md_tables(md_content)
 
             parsed_pages.append(ParsedPage(
@@ -281,10 +260,6 @@ def _parse_with_llamaparse(
         logger.error("LlamaParse gagal: %s. Menggunakan pdfplumber.", e)
         return None
 
-
-# ------------------------------------------------------------------ #
-#  Parser 2: pdfplumber (Fallback)
-# ------------------------------------------------------------------ #
 
 def _table_to_markdown(table: list) -> str:
     """Convert a pdfplumber table (list of lists) to a Markdown table string."""
@@ -328,7 +303,6 @@ def _parse_with_pdfplumber(
         for i, page in enumerate(pdf.pages):
             page_num = i + 1
 
-            # Extract tables
             tables_raw = page.extract_tables()
             tables_md: List[str] = []
             for tbl in tables_raw:
@@ -336,7 +310,6 @@ def _parse_with_pdfplumber(
                 if md:
                     tables_md.append(md)
 
-            # Extract narrative text (outside table bboxes)
             raw_text = page.extract_text() or ""
             try:
                 table_bboxes = [t.bbox for t in page.find_tables()]
@@ -366,10 +339,6 @@ def _parse_with_pdfplumber(
     logger.info(f"pdfplumber: {len(parsed_pages)} pages parsed.")
     return parsed_pages
 
-
-# ------------------------------------------------------------------ #
-#  Main Parser Class
-# ------------------------------------------------------------------ #
 
 class PDFParser:
     """
@@ -402,15 +371,7 @@ class PDFParser:
         *,
         refresh_cache: bool = False,
     ) -> List[ParsedPage]:
-        """
-        Parse all pages in the PDF.
-
-        Args:
-            progress_callback: Optional callable(current, total) for progress.
-
-        Returns:
-            List of ParsedPage objects.
-        """
+        """Mengekstrak halaman dan tabel serta menyimpan hasil preprocessing pada cache."""
         self.cache_migrated = False
         source_digest = _source_digest(self.pdf_path)
         self.cache_path = _cache_path(self.pdf_path, self.parser_mode, source_digest)

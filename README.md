@@ -16,14 +16,11 @@ Implementasi mengacu pada proposal final **535230133.pdf**: LlamaParse → prepr
 
 ## Menjalankan pada komputer ini
 
-Buka terminal di folder `Program`. Launcher memilih Python 3.12 dan dependensi yang sesuai; jangan menjalankan Python 3.14 dengan `.python-deps`.
+Buka terminal di folder `Program` dan gunakan lingkungan Python 3.12 yang telah dipasangi dependensi proyek.
 
 ```powershell
-.\jalankan.ps1 -Mode check
-.\jalankan.ps1
+.venv\Scripts\python.exe -m streamlit run app.py
 ```
-
-Mode `check` memeriksa dependensi dan inisialisasi pipeline. Ini bukan pengujian koneksi API atau kebenaran jawaban.
 
 ## Menambahkan prospektus
 
@@ -32,7 +29,7 @@ Mode `check` memeriksa dependensi dan inisialisasi pipeline. Ini bukan pengujian
 2. Jalankan pemrosesan dari terminal:
 
 ```powershell
-.\proses_dokumen.ps1 -Documents "RANS_2026.pdf"
+.venv\Scripts\python.exe -m scripts.ingest_documents --documents "RANS_2026.pdf"
 ```
 
 3. Tunggu `[OK] Indexed ...` dan `Ingestion complete.`. Jika `[GAGAL]` muncul, dokumen belum dinyatakan selesai. Pesan menunjukkan tahap dan tindakan yang diperlukan.
@@ -80,38 +77,88 @@ Pertanyaan dinormalisasi untuk pencarian; pertanyaan asli diberikan kepada gener
 
 ## Pengujian dan evaluasi
 
-```powershell
-.\jalankan.ps1 -Mode test
-.\jalankan.ps1 -Mode evaluation
-```
-
-Evaluasi chunk membutuhkan `relevant_chunk_ids` pada ground truth. Dataset lama hanya mempunyai `source_pages`; anotasi chunk perlu dilengkapi peneliti. Pemeriksaan berdasarkan halaman tersedia secara eksplisit:
-
-```powershell
-.\jalankan.ps1 -Mode evaluation -RelevanceUnit page
-```
-
-Laporan halaman tidak boleh diklaim sebagai evaluasi chunk. Ketiga konfigurasi menggunakan pertanyaan dan korpus yang sama. Precision@1/3/6, Recall@1/3/6, dan MRR dihitung terpisah dari generasi. Ambang penolakan 0,02 hanya berlaku untuk hybrid RRF.
-
-Untuk RAGAS pada lingkungan Python 3.12 yang telah terpasang:
+Gunakan satu notebook [Evaluasi_Retrieval_RAGAS.ipynb](Evaluasi_Retrieval_RAGAS.ipynb)
+di VS Code. Pilih kernel Python lokal dan jalankan **Run All**.
+Notebook menghitung ulang retrieval dan menjalankan RAGAS dari enam konteks teratas.
+Pengujian pertama membutuhkan koneksi API. Checkpoint berikutnya dapat dilanjutkan.
+Ubah `ULANG_RAGAS = True` untuk menghasilkan dan menilai jawaban baru melalui API.
 
 ```powershell
-.venv\Scripts\python.exe -m scripts.run_evaluation --with-ragas
+.venv\Scripts\python.exe -m pip install -r requirements-evaluation.txt
+.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-RAGAS mengukur faithfulness, answer relevancy, context precision, dan context recall. Black Box Testing serta Human Evaluation dilaksanakan menggunakan [panduan evaluasi](docs/technical/panduan_evaluasi.md). Hasil penilaian pengguna tidak dibuat oleh program.
+Set uji memakai 63 pertanyaan dari tujuh prospektus pada
+`data/evaluation/thesis_benchmark/`: 56 pertanyaan dengan jawaban dan tujuh tanpa jawaban.
+Retrieval menampilkan distribusi dokumen, Precision@K, Recall@K, MRR@K pada K=1,3,6,
+serta hasil empat kategori pada K=6. Rerata retrieval memakai 56 pertanyaan dengan jawaban.
+RAGAS hanya memproses 56 pertanyaan yang mempunyai jawaban, dengan metrik
+Faithfulness, Answer Relevancy, Context Precision, dan Context Recall.
+Mode RAGAS `retrieved_top_k` menguji retrieval dan generasi tanpa ambang penolakan
+aplikasi. Hasil baru tersimpan di `evaluation/results/ragas_56_konteks/`.
+Hasil lama di `ragas_56/` tetap menjadi arsip. Pengujian dinyatakan lengkap setelah
+seluruh 56 pertanyaan memperoleh empat skor. Rerata disertai jumlah pertanyaan dinilai.
+Tabel dan rincian jawaban disimpan di `evaluation/results/evaluasi_retrieval_ragas/`.
+Setiap pertanyaan mempunyai rincian retrieval untuk tiga metode pada K=1,3,6,
+peringkat dan teks chunk, serta hasil RAGAS dengan jawaban dan konteks aktual.
+Tabel ditampilkan langsung sebagai Markdown di notebook, dengan ekspor `Hasil_Evaluasi.md` dan CSV.
+API key dibaca dari `.env`. Anotasi yang masih berstatus pending tetap memerlukan validasi pakar.
+
+Black Box Testing serta Human Evaluation dilaksanakan menggunakan
+[panduan evaluasi](docs/technical/panduan_evaluasi.md).
 
 Rincian pemetaan, keputusan implementasi, dan batas yang perlu dilaporkan tersedia di [kesesuaian proposal final](docs/technical/kesesuaian_proposal_final.md).
 
 ## Struktur
 
-- `src/ingestion`: parsing, preprocessing, dan chunking.
-- `src/retrieval`: embedding, indeks, tokenisasi, dan RRF.
-- `src/generation`: prompt dan jawaban OpenRouter.
-- `src/services`: orkestrasi dan pesan diagnostik.
-- `src/ui` dan `app.py`: antarmuka pengguna.
-- `scripts`: pemrosesan dokumen serta pengelolaan indeks.
-- `evaluation`: retrieval, RAGAS, jawaban, dan ringkasan penilaian manusia.
-- `tests`: pengujian otomatis.
+Semua lokasi berikut dihitung dari folder `Program`.
+
+| Lokasi | Fungsi |
+| --- | --- |
+| `app.py` | Aplikasi Streamlit, navigasi halaman, pilihan emiten, percakapan, dan tampilan sumber jawaban. |
+| `config.py` | Lokasi penyimpanan, parameter preprocessing, chunking, retrieval, model, dan pembacaan konfigurasi lingkungan. |
+| `Evaluasi_Retrieval_RAGAS.ipynb` | Satu notebook evaluasi lokal. Menampilkan ringkasan dan hasil setiap pertanyaan dalam tabel Markdown. |
+| `src/ingestion/parser.py` | Ekstraksi halaman dan tabel PDF melalui LlamaParse atau parser lokal, beserta cache parsing. |
+| `src/ingestion/preprocessor.py` | Pembersihan teks dokumen, header dan footer berulang, serta normalisasi pertanyaan. |
+| `src/ingestion/chunker.py` | Pembentukan chunk narasi dan tabel dengan metadata halaman, bagian, serta satuan keuangan. |
+| `src/retrieval/embedder.py` | Embedding BGE-M3 melalui penyedia yang dipilih. |
+| `src/retrieval/tokenizer.py` | Tokenisasi teks dan pertanyaan untuk pencarian BM25. |
+| `src/retrieval/indexer.py` | Penyimpanan dan pencarian melalui ChromaDB serta BM25 per emiten. |
+| `src/retrieval/retriever.py` | Pengambilan kandidat sparse dan dense, perluasan kueri, serta penggabungan peringkat menggunakan RRF. |
+| `src/generation/generator.py` | Penyusunan konteks dan prompt, pemanggilan model, pembersihan jawaban, serta pemilihan sumber sitasi. |
+| `src/services/pipeline.py` | Penghubung pengindeksan dokumen, pencarian, pemeriksaan ambang, dan pembentukan jawaban. |
+| `src/services/diagnostics.py` | Pesan diagnostik saat layanan atau pemrosesan gagal. |
+| `src/ui/` | State sesi, utilitas identitas emiten, dan stylesheet aplikasi. |
+| `scripts/ingest_documents.py` | Perintah terminal untuk memproses prospektus yang dipilih. |
+| `scripts/rebuild_indexes.py` | Pemilihan dan pengindeksan ulang dokumen. |
+| `scripts/check_registry.py` | Pemeriksaan kesesuaian registry dan indeks. |
+| `scripts/clean_indexes.py` | Utilitas untuk mereset indeks atau menghapus emiten sesuai argumen perintah. |
+| `scripts/cache_evaluation_embeddings.py` | Pembentukan dan pembacaan cache embedding pertanyaan evaluasi. |
+| `scripts/prepare_community_cloud.py` | Pembuatan salinan deployment dan pemeriksaan integritas berkas. |
+| `scripts/run_evaluation.py`, `scripts/export_paper_tables.py`, `scripts/prepare_annotations.py` | Evaluasi terminal, ekspor tabel penelitian, dan persiapan anotasi. |
+| `evaluation/notebook_evaluation.py` | Perhitungan metrik retrieval, rincian chunk, hasil RAGAS, serta ekspor Markdown dan CSV. |
+| `evaluation/run_ragas_complete.py` | Pelaksana RAGAS untuk pertanyaan yang memiliki jawaban, dengan checkpoint dan pencatatan kegagalan. |
+| `evaluation/ragas_evaluator.py` | Adapter empat metrik RAGAS dan penyimpanan skor parsial. |
+| `evaluation/evaluate_retrieval.py`, `evaluation/evaluate_generation.py`, `evaluation/compare_methods.py` | Pengujian retrieval, jawaban, dan perbandingan konfigurasi pencarian. |
+| `evaluation/preflight.py`, `evaluation/validate_dataset.py`, `evaluation/connection_check.py` | Validasi dataset, kesiapan indeks, dependensi, dan koneksi layanan. |
+| `evaluation/reporting.py`, `evaluation/paper_tables.py`, `evaluation/human_evaluation.py` | Metadata eksperimen, laporan, tabel penelitian, dan pengolahan penilaian manusia. |
+| `evaluation/thesis_*.py`, `evaluation/verify_*.py` | Pembentukan dataset penelitian, eksperimen tambahan, dan verifikasi fungsionalitas. |
+| `evaluation/cache/` | Embedding pertanyaan yang telah dihitung untuk evaluasi. |
+| `evaluation/results/` | Checkpoint, hasil pengujian, dan laporan eksperimen. Hasil notebook berada di `evaluasi_retrieval_ragas/`. |
+| `data/raw/prospectuses/` | PDF prospektus sumber. |
+| `data/parsed/` | Hasil ekstraksi dan preprocessing PDF. |
+| `data/indexes/` | Indeks ChromaDB dan BM25. |
+| `data/registry/` | Metadata dokumen yang telah diindeks. |
+| `data/evaluation/thesis_benchmark/` | Pertanyaan, jawaban acuan, label chunk relevan, dan berkas anotasi. |
+| `tests/unit/`, `tests/integration/` | Pengujian fungsi per modul dan hubungan antarmodul. |
+| `docs/`, `alur_sistem.md` | Panduan penggunaan, pengindeksan, deployment, dan alur sistem. |
+| `deploy/` | Salinan berkas aplikasi dan indeks untuk pengiriman atau arsip deployment. |
+| `output/` | Hasil jawaban sistem dan anotasi dari pengujian sebelumnya. |
+| `tmp/` | Berkas perantara pembuatan dokumen, render, dan pengujian lokal. |
+| `requirements.txt` | Dependensi utama aplikasi. |
+| `requirements-evaluation.txt` | Dependensi evaluasi dan kernel notebook. |
+| `requirements-dev.txt` | Dependensi pengujian otomatis. |
+| `requirements-local.txt` | Dependensi tambahan untuk embedding lokal. |
+| `pyproject.toml` | Pengaturan pytest dan cakupan pengujian. |
 
 Jangan menghapus atau membangun ulang indeks tanpa kebutuhan. Untuk mengganti dokumen yang telah diindeks, skrip Python menyediakan `--force`; gunakan Python 3.12 dengan dependensi proyek. Pemrosesan dokumen dan penggunaan antarmuka sebaiknya dijalankan secara bergantian.
