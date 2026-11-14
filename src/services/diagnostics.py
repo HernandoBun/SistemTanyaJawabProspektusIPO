@@ -23,7 +23,7 @@ def check_embedding_connection() -> None:
         ) from exc
 
 
-def describe_error(error: Exception) -> str:
+def describe_error(error: Exception, *, fallback: str | None = None) -> str:
     names = {cls.__name__ for cls in type(error).__mro__}
     if names & {"APIConnectionError", "ConnectError", "APITimeoutError", "TimeoutException"}:
         return ("Tidak dapat terhubung ke layanan API. Periksa internet, DNS, VPN/proxy, "
@@ -33,4 +33,4 @@ def describe_error(error: Exception) -> str:
         return "Layanan menolak akses. Periksa API key dan izin layanan pada .env."
     if names & {"RateLimitError"}:
         return "Batas penggunaan layanan tercapai. Periksa kuota dan coba lagi setelah jeda."
-    return str(error)
+    return str(error) if fallback is None else fallback

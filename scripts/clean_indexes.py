@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import config
+from src.services.index_lock import IndexWriteBusyError, index_write_lock
 
 def clean_all(delete_parse_cache: bool = False):
     print("Mereset seluruh indeks (ChromaDB + BM25 + Registry)...")
@@ -67,14 +68,20 @@ def main():
     parser.add_argument("--delete-parsed-cache", action="store_true", help="Ikut hapus cache JSON hasil parsing LlamaParse")
 
     args = parser.parse_args()
-    if args.all:
-        clean_all(delete_parse_cache=args.delete_parsed_cache)
-    elif args.doc:
-        remove_doc(args.doc)
-    else:
+    if not (args.all or args.doc):
         print("Gunakan salah satu argumen:")
         print("  python scripts/clean_indexes.py --all")
         print("  python scripts/clean_indexes.py --doc NAMA_DOKUMEN.pdf")
+        return
+
+    try:
+        with index_write_lock():
+            if args.all:
+                clean_all(delete_parse_cache=args.delete_parsed_cache)
+            else:
+                remove_doc(args.doc)
+    except IndexWriteBusyError as exc:
+        parser.exit(1, f"[GAGAL] {exc}\n")
         print("  python scripts/clean_indexes.py --all --delete-parsed-cache")
 
 if __name__ == "__main__":

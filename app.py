@@ -33,7 +33,7 @@ from src.ui.utils import get_ticker_from_filename, get_prospectus_year, get_pros
 from src.generation.generator import clean_generated_answer
 
 def load_pipeline():
-    """Reload offline index updates while preserving this session's selection."""
+    """Reload index updates while preserving this session's selection."""
     from src.services.pipeline import RAGPipeline
     try:
         registry_stat = config.CACHE_REGISTRY_PATH.stat()
@@ -148,9 +148,85 @@ def render_home():
         unsafe_allow_html=True,
     )
 
+def render_prospectus_upload():
+    from src.services.diagnostics import describe_error
+    from src.services.index_lock import IndexWriteBusyError
+    from src.services.prospectus_upload import (
+        ProspectusUploadError,
+        upload_prospectus,
+    )
+
+    if uploaded_name := st.session_state.pop("uploaded_prospectus_name", None):
+        st.success(f"**{uploaded_name}** sudah siap. Klik **Pilih & Chat** pada daftar dokumen.")
+        st.session_state.management_year = str(get_prospectus_year(uploaded_name))
+
+    upload_count = st.session_state.get("prospectus_upload_count", 0)
+    with st.form("prospectus_upload_form"):
+        st.subheader("Upload Prospektus IPO")
+        st.markdown("Gunakan nama **`KODE_TAHUN.pdf`**, misalnya **`ANDA_2026.pdf`**.")
+        with st.container(key="prospectus_upload_row"):
+            upload_column, action_column = st.columns([3, 1])
+            with upload_column:
+                with st.container(key="prospectus_upload_box"):
+                    pdf = st.file_uploader(
+                        "File prospektus IPO",
+                        type=["pdf"],
+                        key=f"prospectus_upload_{upload_count}",
+                        help="Gunakan PDF yang dapat dibuka tanpa kata sandi dan nama file yang belum ada di server.",
+                    )
+            with action_column:
+                with st.container(key="prospectus_upload_action"):
+                    submitted = st.form_submit_button("Upload", type="primary")
+
+    if not submitted:
+        return
+    if pdf is None:
+        st.warning("Pilih file prospektus PDF terlebih dahulu.")
+        return
+
+    status = st.status("Memeriksa PDF...")
+    stage_labels = {
+        "parsing": "Mengekstrak teks dan tabel",
+        "preprocessing": "Membersihkan teks",
+        "chunking": "Membagi dokumen",
+        "embedding": "Membuat embedding",
+        "indexing": "Menyimpan indeks",
+        "done": "Menyelesaikan pengindeksan",
+    }
+    last_progress = None
+
+    def update_progress(stage, fraction, _message):
+        nonlocal last_progress
+        percent = int(fraction * 20) * 5
+        marker = (stage, percent)
+        if marker != last_progress:
+            status.update(label=f"{stage_labels.get(stage, stage)} · {percent}%")
+            last_progress = marker
+
+    try:
+        upload_prospectus(pdf.name, pdf.getvalue(), progress_callback=update_progress)
+    except (ProspectusUploadError, IndexWriteBusyError) as exc:
+        status.update(label="Upload belum berhasil", state="error")
+        st.error(str(exc))
+        return
+    except Exception as exc:
+        logger.exception("Prospectus upload failed")
+        status.update(label="Pengindeksan belum berhasil", state="error")
+        st.error(describe_error(
+            exc,
+            fallback="Periksa layanan pemrosesan dan penyimpanan aplikasi, lalu coba lagi.",
+        ))
+        return
+
+    status.update(label="Prospektus siap", state="complete")
+    st.session_state.uploaded_prospectus_name = pdf.name
+    st.session_state.prospectus_upload_count = upload_count + 1
+    st.rerun()
+
+
 def render_management():
     st.title("Manajemen Emiten")
-    st.caption("Pilih emiten yang sudah siap untuk memulai tanya jawab.")
+    render_prospectus_upload()
     pipeline = load_pipeline()
     indexed = pipeline.get_indexed_docs()
     active = pipeline.get_active_document()
@@ -164,7 +240,7 @@ def render_management():
         st.session_state.management_year = "Semua tahun"
     selected_year = st.selectbox("Tahun prospektus", year_options, key="management_year")
     if not names:
-        st.info("Belum ada dokumen. Prospektus akan tampil setelah disiapkan oleh pengelola.")
+        st.info("Belum ada prospektus di server.")
         return
     if selected_year == "Tahun belum diketahui":
         names = {name for name in names if document_years[name] is None}
@@ -188,7 +264,7 @@ def render_management():
                 f"{info.get('chunk_count', 0):,} chunks<br>"
                 f"{info.get('total_pages', 0):,} halaman &nbsp; · &nbsp; "
                 f"{info.get('removed_header_footer_lines', 0):,} baris dibersihkan"
-                if ready else "Menunggu pemrosesan offline"
+                if ready else "Menunggu pengindeksan"
             )
             with column:
                 ticker = html.escape(get_ticker_from_filename(name))
@@ -253,8 +329,8 @@ def render_about():
     Oleh: **Hernando Bun**
     
     ### Arsitektur Sistem
-    Dokumen disiapkan melalui proses offline. Pengguna memilih dokumen yang sudah tersedia,
-    lalu mengajukan pertanyaan. Jawaban merupakan informasi prospektus, bukan rekomendasi investasi.
+    Pengguna dapat mengunggah prospektus dan memilih dokumen berstatus SIAP untuk mengajukan pertanyaan.
+    Jawaban merupakan informasi prospektus, bukan rekomendasi investasi.
     Sistem menggunakan arsitektur RAG lanjutan (Advanced RAG) untuk mengatasi dokumen yang panjang dan kompleks (300-500 halaman).
     
     1. **Parsing, Preprocessing & Chunking**

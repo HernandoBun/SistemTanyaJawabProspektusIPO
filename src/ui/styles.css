@@ -99,4 +99,39 @@ h3 { font-size: 1.1rem !important; }
     font-size: .78rem;
     line-height: 1.55;
 }
+/* Compact upload box on Manajemen Emiten */
+[data-testid="stForm"] { max-width: 600px; }
+.st-key-prospectus_upload_row { max-width: 560px; }
+.st-key-prospectus_upload_box { max-width: 420px; }
+.st-key-prospectus_upload_box [data-testid="stWidgetLabel"] { margin-bottom: 2px; }
+.st-key-prospectus_upload_box [data-testid="stWidgetLabel"] p { font-size: .8rem; }
+.st-key-prospectus_upload_box [data-testid="stFileUploaderDropzone"] {
+    height: 34px;
+    min-height: 0;
+    padding: 0 10px;
+    gap: 8px;
+}
+.st-key-prospectus_upload_box [data-testid="stFileUploaderDropzoneInstructions"] { gap: 0; }
+.st-key-prospectus_upload_box [data-testid="stFileUploaderDropzoneInstructions"] > span:first-child,
+.st-key-prospectus_upload_box [data-testid="stFileUploaderDropzoneInstructionsIcon"] { display: none; }
+.st-key-prospectus_upload_box [data-testid="stFileUploaderDropzoneInstructions"] span {
+    font-size: .72rem;
+    line-height: 1.2;
+}
+.st-key-prospectus_upload_box [data-testid="stFileUploaderDropzoneInstructions"] small { display: none; }
+.st-key-prospectus_upload_box [data-testid="stFileUploaderDropzone"] button {
+    min-height: 24px;
+    height: 24px;
+    padding: 0 8px;
+    font-size: .7rem;
+}
+.st-key-prospectus_upload_box [data-testid="stFileUploaderDropzoneInput"] { display: none; }
+/* Tombol upload sejajar dengan kotak dropzone (label widget 24 px + margin 2 px). */
+.st-key-prospectus_upload_action { margin-top: 26px; }
+.st-key-prospectus_upload_action .stFormSubmitButton button {
+    min-height: 34px;
+    height: 34px;
+    padding: 0 12px;
+    font-size: .78rem;
+}
 

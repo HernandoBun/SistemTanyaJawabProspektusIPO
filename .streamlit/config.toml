@@ -5,6 +5,7 @@ developmentMode = false
 headless = true
 port = 8501
 fileWatcherType = "none"
+maxUploadSize = 50
 
 [theme]
 base = "dark"

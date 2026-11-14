@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 class RAGPipeline:
     """Pipeline pengindeksan dan tanya jawab untuk emiten aktif."""
 
-    def __init__(self):
+    def __init__(self, *, strict_registry: bool = False):
         from src.retrieval.indexer import DualIndexer
 
         self.indexer = DualIndexer()
@@ -35,20 +36,28 @@ class RAGPipeline:
         self._active_doc: Optional[str] = None
         self._is_ready = False
 
-        self._registry: Dict[str, dict] = self._load_registry()
+        self._registry: Dict[str, dict] = self._load_registry(strict_registry)
 
         self._try_load_existing_index()
 
 
-    def _load_registry(self) -> Dict[str, dict]:
+    def _load_registry(self, strict: bool = False) -> Dict[str, dict]:
         """Load the JSON registry of indexed documents from disk."""
-        if config.CACHE_REGISTRY_PATH.exists():
-            try:
-                with open(config.CACHE_REGISTRY_PATH, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning(f"Could not load registry: {e}")
-        return {}
+        try:
+            with config.CACHE_REGISTRY_PATH.open(encoding="utf-8") as registry_file:
+                registry = json.load(registry_file)
+            if not isinstance(registry, dict) or any(
+                not isinstance(metadata, dict) for metadata in registry.values()
+            ):
+                raise ValueError("Format registry prospektus tidak valid.")
+            return registry
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            if strict:
+                raise RuntimeError("Registry prospektus gagal dimuat.") from exc
+            logger.warning("Could not load registry: %s", exc)
+            return {}
 
     def _save_registry(self) -> None:
         """Publish a complete registry only after the indexes are written."""
@@ -70,6 +79,10 @@ class RAGPipeline:
             for name, metadata in self._registry.items()
             if metadata.get("index_schema_version") == config.INDEX_SCHEMA_VERSION
         }
+
+    def get_registered_document_names(self) -> set[str]:
+        """Include earlier schema versions when checking reserved filenames."""
+        return set(self._registry)
 
     def set_active_document(self, doc_name: str) -> None:
         """
@@ -105,6 +118,8 @@ class RAGPipeline:
         progress_callback: Optional[Callable] = None,
         force: bool = False,
         refresh_parse_cache: bool = False,
+        *,
+        upload_destination: Path | None = None,
     ) -> dict:
         """Mengindeks prospektus dan memperbarui registry setelah indeks tersimpan."""
         pdf_path = Path(pdf_path)
@@ -115,13 +130,13 @@ class RAGPipeline:
         def _cb(stage: str, pct: float, msg: str = ""):
             if progress_callback:
                 progress_callback(stage, pct, msg)
-            logger.info(f"[{stage}] {pct:.0%} — {msg}")
+            logger.info("[%s] %.0f%% - %s", stage, pct * 100, msg)
 
         if (not force and self.is_doc_indexed(doc_name)
                 and self._registry[doc_name].get("content_sha256") == content_hash):
-            logger.info(f"'{doc_name}' already indexed — skipping ingestion.")
+            logger.info("'%s' already indexed, skipping ingestion.", doc_name)
             self.set_active_document(doc_name)
-            _cb("done", 1.0, f"✅ '{doc_name}' sudah diindeks sebelumnya.")
+            _cb("done", 1.0, f"'{doc_name}' sudah diindeks sebelumnya.")
             cached = self._registry[doc_name]
             return {**cached, "skipped": True, "pdf_name": doc_name}
 
@@ -141,7 +156,7 @@ class RAGPipeline:
         stats["parse_cache_hit"] = parser.cache_hit
         stats["parse_cache_migrated"] = parser.cache_migrated
         stats["parse_cache_path"] = str(parser.cache_path or "")
-        _cb("parsing", 1.0, f"✓ {len(pages)} halaman selesai diparsing")
+        _cb("parsing", 1.0, f"{len(pages)} halaman selesai diparsing")
 
         # Preprocessing runs centrally inside PDFParser before the parse cache
         # is saved, so both fresh and cached pages follow identical rules.
@@ -157,7 +172,7 @@ class RAGPipeline:
         _cb(
             "preprocessing",
             1.0,
-            "✓ Preprocessing selesai: "
+            "Preprocessing selesai: "
             f"{stats['removed_header_footer_lines']} baris header/footer dihapus",
         )
 
@@ -168,7 +183,7 @@ class RAGPipeline:
         stats["narrative_chunks"] = sum(1 for c in chunks if c.chunk_type == "narrative")
         stats["table_chunks"] = sum(1 for c in chunks if c.chunk_type == "table")
         _cb("chunking", 1.0,
-            f"✓ {len(chunks)} chunks ({stats['narrative_chunks']} narasi, "
+            f"{len(chunks)} chunks ({stats['narrative_chunks']} narasi, "
             f"{stats['table_chunks']} tabel)")
 
         _cb("embedding", 0.0, f"Memuat model {config.EMBEDDING_MODEL_NAME}...")
@@ -182,7 +197,7 @@ class RAGPipeline:
             elif step == "indexing_sparse":
                 _cb("indexing", 0.7, "Membangun indeks BM25...")
             elif step == "done":
-                _cb("indexing", 1.0, "✓ Index selesai dibangun")
+                _cb("indexing", 1.0, "Indeks selesai dibangun")
 
         if not chunks:
             raise ValueError("Tidak ada chunk yang dapat diindeks dari PDF ini.")
@@ -214,14 +229,22 @@ class RAGPipeline:
             "preprocessing": stats["preprocessing"],
         }
         old_registry = dict(self._registry)
+
         def publish():
             stats["elapsed_seconds"] = round(time.time() - start_time, 2)
             new_metadata["elapsed_seconds"] = stats["elapsed_seconds"]
-            self._registry[doc_name] = new_metadata
+            source_created = False
             try:
+                if upload_destination is not None:
+                    with pdf_path.open("rb") as source, upload_destination.open("xb") as destination:
+                        source_created = True
+                        shutil.copyfileobj(source, destination)
+                self._registry[doc_name] = new_metadata
                 self._save_registry()
-            except Exception:
+            except BaseException:
                 self._registry = old_registry
+                if source_created:
+                    upload_destination.unlink()
                 raise
 
         self.indexer.replace_document(
@@ -231,7 +254,7 @@ class RAGPipeline:
         self._is_ready = True
         self.set_active_document(doc_name)
 
-        _cb("done", 1.0, f"✓ Selesai dalam {stats['elapsed_seconds']:.1f} detik")
+        _cb("done", 1.0, f"Selesai dalam {stats['elapsed_seconds']:.1f} detik")
         logger.info(f"Ingestion complete: {stats}")
         return stats
 

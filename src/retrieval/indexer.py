@@ -220,7 +220,7 @@ class DualIndexer:
     def replace_document(self, doc_source, chunks, embeddings, publish, progress_callback=None):
         """Restore the previous document on a failed write or registry publish.
 
-        Offline writers must run sequentially. This recovers Python exceptions;
+        Writers must run sequentially. This recovers Python exceptions;
         it is not a cross-store transaction against power loss or process kills.
         """
         snapshot = self._collection.get(
@@ -233,7 +233,7 @@ class DualIndexer:
                 raise RuntimeError(f"Gagal menyiapkan penggantian indeks {doc_source}")
             self.build_index(chunks, embeddings=embeddings, progress_callback=progress_callback)
             publish()
-        except Exception:
+        except BaseException:
             try:
                 if self._collection is not None:
                     self._collection.delete(where={"doc_source": doc_source})

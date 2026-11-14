@@ -24,6 +24,21 @@ Buka terminal di folder `Program` dan gunakan lingkungan Python 3.12 yang telah 
 
 ## Menambahkan prospektus
 
+1. Buka **Manajemen Emiten** dan pilih PDF pada bagian **Upload Prospektus IPO**.
+2. Gunakan format `KODE_TAHUN.pdf`, misalnya `ANDA_2026.pdf`. Kode emiten terdiri dari
+   empat huruf kapital. Gunakan tahun yang tercantum pada prospektus IPO.
+3. Unggah satu PDF per proses, maksimal **50 MB** dan **1.000 halaman**. File harus
+   dapat dibuka tanpa kata sandi. Gunakan nama file yang belum ada di server.
+4. Klik **Upload**. Setelah berhasil, kartu emiten muncul di tahun
+   prospektusnya dengan status **SIAP**. Klik **Pilih & Chat** untuk mulai bertanya.
+
+Pengindeksan memakai konfigurasi parser dan embedding aplikasi. Untuk konfigurasi
+baku di Community Cloud, isi juga `LLAMA_CLOUD_API_KEY` di Secrets. PDF, indeks,
+dan registry disimpan pada disk server aplikasi. Cadangkan data ini untuk digunakan
+kembali saat deployment ulang.
+
+### Pemrosesan melalui terminal
+
 1. Simpan PDF di `data/raw/prospectuses/` dengan nama `KODE_TAHUN.pdf`, misalnya
    `KODE_2025.pdf`. Gunakan tahun prospektus/IPO yang sebenarnya.
 2. Jalankan pemrosesan dari terminal:

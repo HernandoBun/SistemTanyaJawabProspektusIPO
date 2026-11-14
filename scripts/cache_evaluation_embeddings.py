@@ -58,6 +58,7 @@ def build_cache(questions_path: Path, destination: Path) -> None:
         questions=file_fingerprint(questions_path), queries=queries,
         query_sha256=[hashlib.sha256(q.encode()).hexdigest() for q in queries],
         probe_chunk_ids=[c.chunk_id for c in probes],
+        probe_doc_sources=[c.doc_source for c in probes],
         query_vectors=file_fingerprint(destination / "query_vectors.npy"),
         probe_vectors=file_fingerprint(destination / "probe_vectors.npy"),
         pooling="model's saved SentenceTransformer modules; normalized dense vectors",
@@ -67,6 +68,7 @@ def build_cache(questions_path: Path, destination: Path) -> None:
 
 class CachedQueryEmbedder:
     def __init__(self, directory: Path, questions_path: Path):
+        self.questions_path = Path(questions_path)
         self.manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
         if self.manifest["questions"]["sha256"] != file_fingerprint(questions_path)["sha256"]:
             raise ValueError("Embedding cache belongs to a different question set")

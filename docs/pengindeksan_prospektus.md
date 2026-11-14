@@ -1,5 +1,13 @@
 # Cara mengindeks prospektus
 
+Di **Manajemen Emiten**, unggah satu PDF dengan format `KODE_TAHUN.pdf`, seperti
+`ANDA_2026.pdf`, lalu klik **Upload**. Gunakan empat huruf kapital dan
+tahun pada prospektus. Batas per file adalah 50 MB dan 1.000 halaman. PDF harus
+dapat dibuka tanpa kata sandi dan namanya harus unik. Setelah pengindeksan selesai,
+pilih **Pilih & Chat** pada kartu berstatus **SIAP**.
+
+## Pemrosesan melalui terminal
+
 Buka terminal di folder **Program**. Masukkan PDF ke `data/raw/prospectuses/`.
 
 ## Menambah prospektus 2025 satu per satu
@@ -31,11 +39,10 @@ Pilihan **2025** tetap tersedia sebelum PDF pertama ditambahkan, dengan pesan
 bahwa prospektus tahun tersebut belum tersedia. File tanpa tahun yang jelas
 ditampilkan dalam **Tahun belum diketahui**.
 
-Untuk Streamlit Cloud, unggah perubahan `app.py` dan `src/ui/utils.py` ke
-repository aplikasi. Setelah menambah PDF secara lokal, perbarui seluruh
-`data/indexes/` dan `data/registry/index_registry.json` bersama-sama, lalu reboot
-aplikasi Cloud. Filter tetap berfungsi dari registry walaupun PDF mentah tidak
-diunggah.
+Untuk memproses melalui halaman Manajemen Emiten di Community Cloud dengan
+konfigurasi baku, isi `LLAMA_CLOUD_API_KEY` dan `OPENROUTER_API_KEY` di Secrets.
+Saat menerbitkan indeks yang dibuat lokal, perbarui `data/indexes/` dan
+`data/registry/index_registry.json` bersama-sama, lalu reboot aplikasi Cloud.
 
 ## Contoh perintah per dokumen
 

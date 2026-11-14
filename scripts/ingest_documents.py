@@ -14,6 +14,7 @@ import config
 from src.services.pipeline import RAGPipeline
 from scripts.rebuild_indexes import select_pdfs
 from src.services.diagnostics import check_embedding_connection, describe_error
+from src.services.index_lock import index_write_lock
 
 def main(argv=None):
     arguments = argparse.ArgumentParser()
@@ -38,16 +39,17 @@ def main(argv=None):
         if not pdfs:
             raise ValueError(f"Belum ada PDF di {config.PROSPEKTUS_DIR}")
         check_embedding_connection()
-        pipeline = RAGPipeline()
-        print(f"Ditemukan {len(pdfs)} dokumen.", flush=True)
-        for pdf in pdfs:
-            last_progress = None
-            print(f"Memproses: {pdf.name}", flush=True)
-            pipeline.ingest(
-                pdf, force=args.force, refresh_parse_cache=args.refresh_parse_cache,
-                progress_callback=progress,
-            )
-            print(f"[OK] Indexed {pdf.name}", flush=True)
+        with index_write_lock():
+            pipeline = RAGPipeline()
+            print(f"Ditemukan {len(pdfs)} dokumen.", flush=True)
+            for pdf in pdfs:
+                last_progress = None
+                print(f"Memproses: {pdf.name}", flush=True)
+                pipeline.ingest(
+                    pdf, force=args.force, refresh_parse_cache=args.refresh_parse_cache,
+                    progress_callback=progress,
+                )
+                print(f"[OK] Indexed {pdf.name}", flush=True)
         print("Ingestion complete.", flush=True)
         return 0
     except Exception as exc:

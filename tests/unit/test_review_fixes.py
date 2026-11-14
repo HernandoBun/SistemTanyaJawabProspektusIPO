@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
+import pymupdf
 import pytest
 import config
 from src.generation.generator import RAGGenerator
@@ -12,6 +13,9 @@ from src.retrieval.indexer import DualIndexer
 from src.retrieval import indexer as indexer_module
 from src.services import pipeline as pipeline_module
 from src.services.pipeline import RAGPipeline
+from src.services.index_lock import IndexWriteBusyError, index_write_lock
+from src.services import prospectus_upload as upload_module
+from src.services.prospectus_upload import ProspectusUploadError, upload_prospectus
 from evaluation.validate_dataset import validate
 
 
@@ -103,3 +107,106 @@ def test_evaluation_rejects_missing_chunk_annotations(tmp_path):
     truth.write_text(json.dumps(dict(question_id='q1', answer='100', source_pages=[1])))
     assert any('relevant_chunk_ids' in error for error in validate(questions, truth))
     assert validate(questions, truth, 'page') == []
+
+
+def prospectus_pdf(*, pages=1, password=None):
+    with pymupdf.open() as pdf:
+        for _ in range(pages):
+            page = pdf.new_page()
+            page.insert_text((72, 72), "Dana penawaran umum perdana saham digunakan untuk modal kerja Perseroan.")
+        if password:
+            return pdf.tobytes(encryption=pymupdf.PDF_ENCRYPT_AES_256, user_pw=password)
+        return pdf.tobytes()
+
+
+@pytest.fixture
+def upload_storage(tmp_path, monkeypatch):
+    prospectuses = tmp_path / "prospectuses"
+    prospectuses.mkdir()
+    monkeypatch.setattr(config, "PROSPEKTUS_DIR", prospectuses)
+    monkeypatch.setattr(config, "CACHE_REGISTRY_PATH", tmp_path / "registry.json")
+    monkeypatch.setattr(config, "CHROMA_DIR", tmp_path / "chroma")
+    monkeypatch.setattr(config, "BM25_INDEX_PATH", tmp_path / "bm25.pkl")
+    monkeypatch.setattr(config, "PARSED_CACHE_DIR", tmp_path / "parsed")
+    monkeypatch.setattr(config, "PARSER_MODE", "pdfplumber")
+    monkeypatch.setattr(upload_module, "check_embedding_connection", Mock())
+    embedder = Mock()
+    embedder.embed_texts.side_effect = lambda texts, **kwargs: np.ones((len(texts), 1024), dtype=np.float32)
+    monkeypatch.setattr(indexer_module, "Embedder", Mock(return_value=embedder))
+    return prospectuses
+
+
+@pytest.mark.parametrize("name,content,error", [
+    ("anda_2026.pdf", b"%PDF-", "KODE_TAHUN.pdf"),
+    ("../ANDA_2026.pdf", b"%PDF-", "KODE_TAHUN.pdf"),
+    ("ANDA_2026.pdf", b"", "kosong"),
+    ("ANDA_2026.pdf", b"plain text", "dibaca sebagai PDF"),
+    ("ANDA_2026.pdf", b"%PDF-1.7\ninvalid", "dibaca sebagai PDF"),
+])
+def test_upload_rejects_invalid_input(upload_storage, name, content, error):
+    with pytest.raises(ProspectusUploadError, match=error):
+        upload_prospectus(name, content)
+    assert not list(upload_storage.iterdir())
+
+
+def test_upload_validates_size_pages_and_password(upload_storage, monkeypatch):
+    monkeypatch.setattr(upload_module, "MAX_UPLOAD_MB", 1)
+    monkeypatch.setattr(upload_module, "MAX_UPLOAD_PAGES", 1)
+    with pytest.raises(ProspectusUploadError, match="Ukuran PDF"):
+        upload_prospectus("ANDA_2026.pdf", b"x" * (1024 * 1024 + 1))
+    with pytest.raises(ProspectusUploadError, match="maksimal 1 halaman"):
+        upload_prospectus("ANDA_2026.pdf", prospectus_pdf(pages=2))
+    with pytest.raises(ProspectusUploadError, match="kata sandi"):
+        upload_prospectus("ANDA_2026.pdf", prospectus_pdf(password="secret"))
+    assert not list(upload_storage.iterdir())
+
+
+@pytest.mark.parametrize("stored_in", ["disk", "legacy registry"])
+def test_upload_rejects_existing_names_case_insensitively(upload_storage, stored_in):
+    if stored_in == "disk":
+        (upload_storage / "anda_2026.PDF").write_bytes(b"existing PDF")
+    else:
+        config.CACHE_REGISTRY_PATH.write_text(
+            json.dumps({"anda_2026.PDF": {"index_schema_version": "legacy"}}), encoding="utf-8",
+        )
+    with pytest.raises(ProspectusUploadError, match="sudah"):
+        upload_prospectus("ANDA_2026.pdf", prospectus_pdf())
+    upload_module.check_embedding_connection.assert_not_called()
+
+
+def test_upload_refuses_a_concurrent_index_write(upload_storage):
+    with index_write_lock(), pytest.raises(IndexWriteBusyError):
+        upload_prospectus("ANDA_2026.pdf", prospectus_pdf())
+    assert not list(upload_storage.iterdir())
+
+
+def test_upload_preserves_an_unreadable_registry(upload_storage):
+    config.CACHE_REGISTRY_PATH.write_bytes(b"{incomplete")
+    with pytest.raises(RuntimeError, match="Registry prospektus gagal dimuat"):
+        upload_prospectus("ANDA_2026.pdf", prospectus_pdf())
+    assert config.CACHE_REGISTRY_PATH.read_bytes() == b"{incomplete"
+    assert not list(upload_storage.iterdir())
+
+
+def test_upload_keeps_pdf_registry_and_indexes_in_sync(upload_storage, monkeypatch):
+    original_pdf = prospectus_pdf()
+    upload_prospectus("LAMA_2025.pdf", original_pdf)
+    original_registry = config.CACHE_REGISTRY_PATH.read_bytes()
+    content = prospectus_pdf(pages=2)
+    with monkeypatch.context() as broken_storage:
+        broken_storage.setattr(RAGPipeline, "_save_registry", Mock(side_effect=OSError("write failed")))
+        with pytest.raises(OSError, match="write failed"):
+            upload_prospectus("ANDA_2026.pdf", content)
+
+    assert {path.name for path in upload_storage.iterdir()} == {"LAMA_2025.pdf"}
+    assert config.CACHE_REGISTRY_PATH.read_bytes() == original_registry
+    counts = RAGPipeline().indexer.get_document_chunk_counts()
+    assert set(counts["chroma"]) == set(counts["bm25"]) == {"LAMA_2025.pdf"}
+
+    upload_prospectus("ANDA_2026.pdf", content)
+    assert (upload_storage / "ANDA_2026.pdf").read_bytes() == content
+    pipeline = RAGPipeline()
+    assert set(pipeline.get_indexed_docs()) == {"LAMA_2025.pdf", "ANDA_2026.pdf"}
+    assert pipeline.get_indexed_docs()["ANDA_2026.pdf"]["total_pages"] == 2
+    counts = pipeline.indexer.get_document_chunk_counts()
+    assert counts["chroma"] == counts["bm25"]

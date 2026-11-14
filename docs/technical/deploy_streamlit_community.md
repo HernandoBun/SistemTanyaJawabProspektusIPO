@@ -17,15 +17,15 @@ unggah melalui Git atau GitHub Desktop. Jangan commit `.env` atau secrets.toml.
 2. Pilih branch repository dan entry point `app.py`.
 3. Pada Advanced settings pilih Python 3.12.
 4. Salin `.streamlit/secrets.toml.example` ke kolom Secrets dan isi API key
-   OpenRouter langsung di dashboard. Semua variabel tetap di tingkat root TOML.
+   OpenRouter. Untuk pengindeksan melalui **Upload Prospektus IPO**, isi juga
+   `LLAMA_CLOUD_API_KEY`. Masukkan variabel di tingkat root TOML.
 5. Deploy dan periksa log, daftar emiten, pertanyaan, serta sumber jawaban.
 6. Reboot dari dashboard dan pastikan indeks tetap terbaca dari snapshot repository.
 
-LlamaParse tidak diperlukan untuk melayani tanya jawab dari indeks yang sudah jadi.
-Pemrosesan dokumen baru tetap dilakukan di komputer lokal menggunakan konfigurasi
-asli, lalu snapshot indeks dan registry diperbarui bersamaan di repository.
-Jangan menjalankan ingestion ketika menyalin snapshot. Data runtime Cloud bukan
-backup; repository menyimpan snapshot awal untuk deployment ulang.
+Upload melalui aplikasi menyimpan PDF, indeks, dan registry ke disk server.
+Cadangkan ketiganya jika perlu memulihkan hasil upload pada deployment ulang.
+Saat memproses prospektus melalui komputer lokal, perbarui snapshot indeks dan
+registry secara bersamaan setelah pengindeksan selesai.
 
 ## Batas verifikasi
 

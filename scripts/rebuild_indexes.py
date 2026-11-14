@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
+from src.services.index_lock import IndexWriteBusyError, index_write_lock
 
 
 def backup_existing() -> Path:
@@ -58,26 +59,27 @@ def rebuild(
             print("Dibatalkan.")
             return
 
-    backup_dir = backup_existing()
-    print(f"Indeks lama dicadangkan ke: {backup_dir}")
-
     from src.services.pipeline import RAGPipeline
 
-    pipeline = RAGPipeline()
-    for number, pdf in enumerate(pdfs, start=1):
-        print(f"[{number}/{len(pdfs)}] {pdf.name}")
-        stats = pipeline.ingest(
-            pdf,
-            refresh_parse_cache=refresh_parse_cache,
-        )
-        if stats.get("parse_cache_migrated"):
-            cache_status = "cache v2 dimigrasi ke v3"
-        else:
-            cache_status = "cache v3" if stats.get("parse_cache_hit") else "parser"
-        print(
-            f"  Parser: {stats.get('parser_used', '?')} "
-            f"({cache_status}), chunks: {stats.get('total_chunks', 0)}"
-        )
+    with index_write_lock():
+        backup_dir = backup_existing()
+        print(f"Indeks lama dicadangkan ke: {backup_dir}")
+
+        pipeline = RAGPipeline()
+        for number, pdf in enumerate(pdfs, start=1):
+            print(f"[{number}/{len(pdfs)}] {pdf.name}")
+            stats = pipeline.ingest(
+                pdf,
+                refresh_parse_cache=refresh_parse_cache,
+            )
+            if stats.get("parse_cache_migrated"):
+                cache_status = "cache v2 dimigrasi ke v3"
+            else:
+                cache_status = "cache v3" if stats.get("parse_cache_hit") else "parser"
+            print(
+                f"  Parser: {stats.get('parser_used', '?')} "
+                f"({cache_status}), chunks: {stats.get('total_chunks', 0)}"
+            )
     print(f"Selesai. {len(pdfs)} dokumen telah diindeks ulang.")
 
 
@@ -96,7 +98,10 @@ def main() -> None:
         help="Abaikan cache dan panggil parser kembali",
     )
     args = parser.parse_args()
-    rebuild(args.yes, args.documents, args.refresh_parse_cache)
+    try:
+        rebuild(args.yes, args.documents, args.refresh_parse_cache)
+    except IndexWriteBusyError as exc:
+        parser.exit(1, f"[GAGAL] {exc}\n")
 
 
 if __name__ == "__main__":
